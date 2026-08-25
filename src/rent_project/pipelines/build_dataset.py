@@ -124,12 +124,12 @@ def main():
     addressbase_schema_new = load_schema_new(ADDRESSBASE_DIRECTORY_RAW / "addressbase-plus-post-e-39-header.csv")
 
     step_build_addressbase2026(addressbase_schema_new)
-    step_clip_addressbase_all_years(addressbase_schema_old, addressbase_schema_new)
+    step_clip_addressbase_all_years(addressbase_schema_old, addressbase_schema_new) # Greater London extent
     addressbase_by_year = step_load_addressbase_by_year(addressbase_schema_old, addressbase_schema_new)
-    addressbase_by_year = step_clip_addressbase_test_area(addressbase_by_year)
+    addressbase_by_year = step_clip_addressbase_test_area(addressbase_by_year) # test area
 
     # step_build_addressbase_panel()
-    # step_filter_residential()
+    # step_filter_residential() - filter by state; class
     # next step goes here
 
 

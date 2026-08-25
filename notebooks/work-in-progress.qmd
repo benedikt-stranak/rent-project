@@ -87,3 +87,15 @@ ab2026clipped['administrative_area'].value_counts(dropna=False)
 del [ab2026full, ab2026clipped]
 
 ```
+
+Check value counts
+```{python}
+#addressbase_by_year[2026]['state'].value_counts(dropna=False)
+# construction, use, vacant/derelict ...
+
+#addressbase_by_year[2026]['class'].value_counts(dropna=False)
+# RD06, RD04, ... (177, 312, 312 values)
+
+#addressbase_by_year[2026]['area_name'].value_counts(dropna=False)
+# all NA, don't need
+```
