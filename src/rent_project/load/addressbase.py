@@ -6,6 +6,19 @@ from zipfile import ZipFile
 import pandas as pd
 
 LONDON_BOROUGHS = ['LONDON','GREATER LONDON','CITY OF WESTMINSTER','TOWER HAMLETS','LB OF TOWER HAMLETS','WANDSWORTH','CROYDON','BARNET','LONDON BOROUGH OF BARNET','SOUTHWARK','LAMBETH','EALING','BROMLEY','LONDON BOROUGH OF BROMLEY','CAMDEN','BRENT','LEWISHAM','NEWHAM','ENFIELD','GREENWICH','LONDON BOROUGH OF GREENWICH','HACKNEY','ISLINGTON','HILLINGDON','HARINGEY','LONDON BOROUGH OF HARINGEY','WALTHAM FOREST','HOUNSLOW','LONDON BOROUGH OF HOUNSLOW','HAMMERSMITH AND FULHAM','HAMMERSMITH','LBHF','REDBRIDGE','HAVERING','LONDON BOROUGH OF HAVERING','KENSINGTON AND CHELSEA','BEXLEY','MERTON','HARROW','RICHMOND UPON THAMES','BARKING AND DAGENHAM','SUTTON','KINGSTON UPON THAMES','CITY OF LONDON']
+COLUMNS_KEEP = ['uprn', 'parent_uprn', 'multi_occ_count', 'udprn', 'addressbase_postal', 'state', 'class', 'level', 'x_coordinate', 'y_coordinate', 'usrn', 'ward_code', 'parish_code', 'local_custodian_code', 'country', 'state_date', 'la_start_date', 'rm_start_date', 'last_update_date', 'entry_date', 'department_name', 'rm_organisation_name', 'sub_building_name', 'building_name', 'building_number', 'po_box_number', 'dependent_thoroughfare', 'thoroughfare', 'double_dependent_locality', 'dependent_locality', 'post_town', 'postcode', 'postcode_type', 'delivery_point_suffix', 'la_organisation', 'sao_text', 'sao_start_number', 'sao_start_suffix', 'sao_end_number', 'sao_end_suffix', 'pao_text', 'pao_start_number', 'pao_start_suffix', 'pao_end_number', 'pao_end_suffix', 'street_description', 'area_name', 'locality', 'town_name', 'administrative_area', 'postcode_locator', 'rpc', 'usrn_match_indicator', 'official_flag', 'os_address_toid', 'os_address_toid_version', 'os_roadlink_toid', 'os_roadlink_toid_version', 'os_topo_toid', 'os_topo_toid_version', 'voa_ct_record', 'voa_ndr_record', 'voa_ndr_p_desc_code', 'voa_ndr_scat_code']
+COLUMN_RENAME = {
+    "rm_udprn": "udprn",
+    "postal_address": "addressbase_postal",
+    "start_date": "la_start_date",
+    "organisation_name": "rm_organisation_name",
+    "dependent_thoroughfare_name": "dependent_thoroughfare",
+    "thoroughfare_name": "thoroughfare",
+    "welsh_dependent_thoroughfare_name": "welsh_dependent_thoroughfare",
+    "welsh_thoroughfare_name": "welsh_thoroughfare",
+    "organisation": "la_organisation",
+    "locality_name": "locality"
+}
 
 # ----------------------------------------
 # Loading AddressBase Plus Schema
@@ -20,7 +33,7 @@ def load_schema_old(header_path):
     header_path: a path to a csv file with column names.
     """
 
-    columns = pd.read_csv(header_path,header=None,dtype=str).iloc[0].str.lower().tolist()
+    columns = pd.read_csv(header_path,header=None,dtype=str).iloc[0].str.lower().tolist()    
     INT_COLUMNS = ['uprn','rm_udprn','parent_uprn','local_custodian_code','sao_start_number','sao_end_number','pao_start_number','pao_end_number','usrn','os_address_toid_version','os_roadlink_toid_version','os_topo_toid_version','voa_ct_record','voa_ndr_record','multi_occ_count']
     FLOAT_COLUMNS = ['x_coordinate', 'y_coordinate']
     DATE_COLUMNS = ['state_date','start_date','end_date','last_update_date','entry_date','process_date']
@@ -129,6 +142,30 @@ def load_full_addressbase(schema, file_path):
         parse_dates=schema["date_columns"]
     )
     return df
+
+def rename_columns(addressbase_single_year):
+    """Rename columns in AddressBase.
+    
+    Parameters
+    -----
+    addressbase_single_year: pandas cotaining one year of AddressBase Plus
+    """
+    renamed = addressbase_single_year.rename(columns=COLUMN_RENAME)
+    return renamed
+
+def align_columns(addressbase_by_year):
+    """ K.
+    """
+
+    aligned = {}
+    for year, df in addressbase_by_year.items():
+        missing = [c for c in COLUMNS_KEEP if c not in df.columns]
+        dropped = [c for c in df.columns if c not in COLUMNS_KEEP]
+        print(year, "missing:", missing)
+        print(year, "dropped:", dropped)
+        aligned[year] = df.reindex(columns=COLUMNS_KEEP)
+    return aligned
+   
 
 def clip_greater_london(df):
     """Takes pandas dataframe

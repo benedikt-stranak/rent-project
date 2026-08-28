@@ -20,7 +20,7 @@ from rent_project.load.addressbase import (
 )
 ```
 
-AddressBase 2011, 2021, 2026 - check clipping
+AddressBase 2011, 21, 26 - Greater London Clipping
 
 ```{python}
 #Load schemas
@@ -88,6 +88,20 @@ del [ab2026full, ab2026clipped]
 
 ```
 
+AddressBase 2011, 2021, 2026 - compare schemas
+
+```{python}
+# columns2011 = list(addressbase_by_year[2011].columns.values)
+# columns2021 = list(addressbase_by_year[2021].columns.values)
+
+# columns2011extras = list(set(columns2011) - set(columns2021))
+# columns2021extras = list(set(columns2021) - set(columns2011))
+
+# columns2011extras
+# columns2021extras
+```
+
+
 Check value counts
 ```{python}
 #addressbase_by_year[2026]['state'].value_counts(dropna=False)
@@ -95,6 +109,9 @@ Check value counts
 
 #addressbase_by_year[2026]['class'].value_counts(dropna=False)
 # RD06, RD04, ... (177, 312, 312 values)
+
+#addressbase_by_year[2026]['area_name'].value_counts(dropna=False)
+# all NA, don't need
 
 #addressbase_by_year[2026]['area_name'].value_counts(dropna=False)
 # all NA, don't need
