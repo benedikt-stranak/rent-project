@@ -131,7 +131,7 @@ def step_clip_addressbase_test_area(addressbase_dictionary):
 
 # Tasks
 # harmonise - DONE
-# build spine
+# build spine - Done on a basic level (yes/no). Now change to (residential/other/no)
 # build keys
 
 def step_build_addressbase_spine(addressbase_harmonised):
