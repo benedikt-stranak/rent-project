@@ -6,6 +6,7 @@ from rent_project.config import (
 )
 from rent_project.load.addressbase import (
     align_columns,
+    build_addressbase_spine,
     clip_greater_london,
     load_and_concatenate,
     load_full_addressbase,
@@ -104,10 +105,10 @@ def step_harmonise_addressbase(addressbase_dictionary):
     """Takes Addressbase Plus dictionary.
     Returns ...
     """
-    harmonised = dict(addressbase_dictionary)
-    harmonised[2011] = rename_columns(harmonised[2011])
-    harmonised = align_columns(harmonised)
-    return harmonised
+    addressbase_harmonised = dict(addressbase_dictionary)
+    addressbase_harmonised[2011] = rename_columns(addressbase_harmonised[2011])
+    addressbase_harmonised = align_columns(addressbase_harmonised)
+    return addressbase_harmonised
 
 def step_clip_addressbase_test_area(addressbase_dictionary):
     """Takes AddressBase Plus dictionary.
@@ -129,9 +130,14 @@ def step_clip_addressbase_test_area(addressbase_dictionary):
     return test_area
 
 # Tasks
-# harmonise
+# harmonise - DONE
 # build spine
 # build keys
+
+def step_build_addressbase_spine(addressbase_harmonised):
+
+    addressbase_spine = build_addressbase_spine(addressbase_harmonised)
+    return addressbase_spine
 
 def main():
 
@@ -142,9 +148,10 @@ def main():
     step_clip_addressbase_all_years(addressbase_schema_old, addressbase_schema_new) # Greater London extent
     addressbase_by_year = step_load_addressbase_by_year(addressbase_schema_old, addressbase_schema_new) # load
     addressbase_by_year = step_harmonise_addressbase(addressbase_by_year) # harmonise
-    # addressbase_by_year = step_clip_addressbase_test_area(addressbase_by_year) # test area - DROP
-
-    # spine = step_build_addressbase_spine() # uprn x y 2011_class 2021_class 2026_class (only rows where at least one year is residential)
+    addressbase_by_year = step_clip_addressbase_test_area(addressbase_by_year) # test area - DROP
+    #addressbase_spine = step_build_addressbase_spine(addressbase_by_year) # uprn x y 2011_class 2021_class 2026_class
+    
+    # spine = step_subset_spine_to_residential() #(only rows where at least one year is residential)
     # keys = step_build_canonical_addresses() # from addressbase, build canonical addresses (both versions) for each residential year, filter duplicates
 
 if __name__ == "__main__":

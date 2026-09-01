@@ -1,4 +1,4 @@
-"""Loading AddressBase Plus"""
+"""Working with AddressBase Plus"""
 
 from pathlib import Path
 from zipfile import ZipFile
@@ -156,7 +156,6 @@ def rename_columns(addressbase_single_year):
 def align_columns(addressbase_by_year):
     """ K.
     """
-
     aligned = {}
     for year, df in addressbase_by_year.items():
         missing = [c for c in COLUMNS_KEEP if c not in df.columns]
@@ -175,6 +174,18 @@ def clip_greater_london(df):
     -----
     df: pandas dataframe with administrative_area column
     """
-
     df = df[df['administrative_area'].isin(LONDON_BOROUGHS)]
     return df
+
+def build_addressbase_spine(dictionary):
+    """K
+
+    Parameters
+    -----
+    dictionary:
+    """
+    uprns = pd.Index(pd.concat([df['uprn'] for df in dictionary.values()]).unique(), name='uprn')
+    out = pd.DataFrame({'uprn': uprns})
+    for year, df in dictionary.items():
+        out[f'in{year}'] = uprns.isin(df['uprn'])
+    return out
