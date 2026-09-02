@@ -150,7 +150,7 @@ def main():
     test = step_clip_test_area(addressbase_by_year) # test area - DROP
 
     # addressbase_spine = step_build_addressbase_spine(addressbase_by_year) # uprn x y 2011_class 2021_class 2026_class (residential, other, N/A)
-    test_spine = step_build_addressbase_spine(test) # uprn x y 2011_class 2021_class 2026_class (residential, other, N/A)
+    test_spine = step_build_addressbase_spine(test) # uprn x y 2011_class 2021_class 2026_class (residential, other, N/A)  # noqa: F841
     # addressbase_spine = step_filter_addressbase_spine(addressbase_spine) # only rows where at least one year is residential
     # test_spine = step_filter_addressbase_spine(test_spine) # only rows where at least one year is residential
 
