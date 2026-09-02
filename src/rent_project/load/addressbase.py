@@ -143,6 +143,19 @@ def load_full_addressbase(schema, file_path):
     )
     return df
 
+
+def clip_greater_london(df):
+    """Takes pandas dataframe
+    Returns it filtered by administrative_area column.
+
+    Parameters
+    -----
+    df: pandas dataframe with administrative_area column
+    """
+    df = df[df['administrative_area'].isin(LONDON_BOROUGHS)]
+    return df
+
+
 def rename_columns(addressbase_single_year):
     """Rename columns in AddressBase.
     
@@ -152,6 +165,7 @@ def rename_columns(addressbase_single_year):
     """
     renamed = addressbase_single_year.rename(columns=COLUMN_RENAME)
     return renamed
+
 
 def align_columns(addressbase_by_year):
     """ K.
@@ -164,18 +178,24 @@ def align_columns(addressbase_by_year):
         print(year, "dropped:", dropped)
         aligned[year] = df.reindex(columns=COLUMNS_KEEP)
     return aligned
-   
 
-def clip_greater_london(df):
-    """Takes pandas dataframe
-    Returns it filtered by administrative_area column.
 
-    Parameters
-    -----
-    df: pandas dataframe with administrative_area column
-    """
-    df = df[df['administrative_area'].isin(LONDON_BOROUGHS)]
+def identify_current_residential(df):
+    """Add docstring"""
+    # CLASS
+    # for now keeps residential dwellings and all HMO records
+    # there is a duplication between RH01 and RH02 - parent children
+    # future option 1: drop all RH02
+    # future option 2: drop all rows that have parent_uprn where class.str[:2].eq("RH")
+    df["is_residential_space"] = df["class"].eq("R") | df["class"].str[:2].isin(["RD", "RH"])
+
+    # STATE
+    # 2 (in use), 3 (unoccupied / vacant / derelict)
+    # 1 (under construction), 4 (no longer existing), 6 (planning permission granted)
+    df["is_in_use"] = df["state"].eq("2")
+    df["is_unoccupied"] = df["state"].eq("3")
     return df
+
 
 def build_addressbase_spine(dictionary):
     """K
