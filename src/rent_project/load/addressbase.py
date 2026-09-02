@@ -168,8 +168,7 @@ def rename_columns(addressbase_single_year):
 
 
 def align_columns(addressbase_by_year):
-    """ K.
-    """
+    """Add docstring"""
     aligned = {}
     for year, df in addressbase_by_year.items():
         missing = [c for c in COLUMNS_KEEP if c not in df.columns]
@@ -182,30 +181,18 @@ def align_columns(addressbase_by_year):
 
 def identify_current_residential(df):
     """Add docstring"""
-    # CLASS
-    # for now keeps residential dwellings and all HMO records
-    # there is a duplication between RH01 and RH02 - parent children
-    # future option 1: drop all RH02
-    # future option 2: drop all rows that have parent_uprn where class.str[:2].eq("RH")
-    df["is_residential_space"] = df["class"].eq("R") | df["class"].str[:2].isin(["RD", "RH"])
-
-    # STATE
-    # 2 (in use), 3 (unoccupied / vacant / derelict)
-    # 1 (under construction), 4 (no longer existing), 6 (planning permission granted)
-    df["is_in_use"] = df["state"].eq("2")
-    df["is_unoccupied"] = df["state"].eq("3")
+    df['is_residential_space'] = df['class'].eq('R') | df['class'].str[:2].isin(['RD', 'RH'])
     return df
 
 
 def build_addressbase_spine(dictionary):
-    """K
-
-    Parameters
-    -----
-    dictionary:
-    """
+    """Add docstring"""
     uprns = pd.Index(pd.concat([df['uprn'] for df in dictionary.values()]).unique(), name='uprn')
-    out = pd.DataFrame({'uprn': uprns})
+    out = pd.DataFrame(index=uprns)
     for year, df in dictionary.items():
-        out[f'in{year}'] = uprns.isin(df['uprn'])
-    return out
+        wave = df.set_index('uprn')[['is_residential_space', 'state']].reindex(uprns)
+        out[f'is_residential_space_{year}'] = wave['is_residential_space']
+        out[f'state_{year}'] = wave['state']
+    return out.reset_index()
+
+

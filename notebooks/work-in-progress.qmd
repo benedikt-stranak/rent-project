@@ -116,3 +116,17 @@ Check value counts
 #addressbase_by_year[2026]['area_name'].value_counts(dropna=False)
 # all NA, don't need
 ```
+
+
+Playing with Pandas
+
+```{python}
+zkus_dictionary = {
+    1: ['A', 'B', 'C'],
+    2: ['D', 'E', 'F'],
+    3: ['G', 'H', 'I']
+}
+
+zkus_pandas = pd.DataFrame(zkus_dictionary)
+
+```
