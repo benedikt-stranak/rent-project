@@ -189,10 +189,56 @@ def build_addressbase_spine(dictionary):
     """Add docstring"""
     uprns = pd.Index(pd.concat([df['uprn'] for df in dictionary.values()]).unique(), name='uprn')
     out = pd.DataFrame(index=uprns)
-    for year, df in dictionary.items():
-        wave = df.set_index('uprn')[['is_residential_space', 'state']].reindex(uprns)
-        out[f'is_residential_space_{year}'] = wave['is_residential_space']
+    coords = pd.DataFrame(index=uprns, columns=['x_coordinate', 'y_coordinate'], dtype=float)
+    for year in sorted(dictionary):
+        df = dictionary[year]
+        wave = df.set_index('uprn')[['is_residential_space','state','x_coordinate','y_coordinate']].reindex(uprns)
+        out[f'residential_{year}'] = wave['is_residential_space']
         out[f'state_{year}'] = wave['state']
-    return out.reset_index()
+        coords = wave[['x_coordinate', 'y_coordinate']].combine_first(coords)
+    return pd.concat([coords,out], axis=1).reset_index()
 
+
+def filter_addressbase_spine(df):
+    mask = (
+        (df['residential_2011'] & df['state_2011'].isin(['2', '3'])) |
+        (df['residential_2021'] & df['state_2021'].isin(['2', '3'])) |
+        (df['residential_2026'] & df['state_2026'].isin(['2', '3']))
+    )
+    return df[mask.fillna(False)].copy()
+
+
+def build_rm_address(row):
+# this seems built to work with Premium rather than Plus, check column names etc
+# https://github.com/OrdnanceSurvey/AddressBase/blob/master/SQL/DeliveryPoint-SingleLineAddress.sql
+
+
+def build_la_address(row):
+# https://github.com/OrdnanceSurvey/AddressBase/blob/master/SQL/GeographicAddress-SingleLineAddress-Plus.sql
+
+
+def build_canonical_address_list(df, dictionary):
+    uprns = set(df['uprn'])
+    keys = []
+    for year, df in dictionary.items():
+        matches = df[df['uprn'].isin(uprns)]
+        for index,row in matches.iterrows():
+            key_la = build_la_address(row)
+            key_rm = build_rm_address(row)
+            uprn = row['uprn']
+            keys.append({
+                'uprn': uprn,
+                'address': key_la['address'],
+                'postcode': key_la['postcode'],
+                'year': year,
+                'type': 'LA'
+            })
+            keys.append({
+                'uprn': uprn,
+                'address': key_rm['address'],
+                'postcode': key_rm['postcode'],
+                'year': year,
+                'type': 'RM'
+            })
+    return pd.DataFrame(keys)
 
