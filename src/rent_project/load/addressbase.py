@@ -3,6 +3,7 @@
 from pathlib import Path
 from zipfile import ZipFile
 
+import duckdb
 import pandas as pd
 
 LONDON_BOROUGHS = ['LONDON','GREATER LONDON','CITY OF WESTMINSTER','TOWER HAMLETS','LB OF TOWER HAMLETS','WANDSWORTH','CROYDON','BARNET','LONDON BOROUGH OF BARNET','SOUTHWARK','LAMBETH','EALING','BROMLEY','LONDON BOROUGH OF BROMLEY','CAMDEN','BRENT','LEWISHAM','NEWHAM','ENFIELD','GREENWICH','LONDON BOROUGH OF GREENWICH','HACKNEY','ISLINGTON','HILLINGDON','HARINGEY','LONDON BOROUGH OF HARINGEY','WALTHAM FOREST','HOUNSLOW','LONDON BOROUGH OF HOUNSLOW','HAMMERSMITH AND FULHAM','HAMMERSMITH','LBHF','REDBRIDGE','HAVERING','LONDON BOROUGH OF HAVERING','KENSINGTON AND CHELSEA','BEXLEY','MERTON','HARROW','RICHMOND UPON THAMES','BARKING AND DAGENHAM','SUTTON','KINGSTON UPON THAMES','CITY OF LONDON']
@@ -208,37 +209,146 @@ def filter_addressbase_spine(df):
     return df[mask.fillna(False)].copy()
 
 
-def build_rm_address(row):
-# this seems built to work with Premium rather than Plus, check column names etc
-# https://github.com/OrdnanceSurvey/AddressBase/blob/master/SQL/DeliveryPoint-SingleLineAddress.sql
+# ----------------------------------------
+# Building AddressBase Plus addresses
+# ----------------------------------------
+
+# this is old
+
+#def build_canonical_address_list(spine, dictionary):
+#    uprns = set(spine['uprn'])
+#    keys = []
+#    for year, df in dictionary.items():
+#        matches = df[df['uprn'].isin(uprns)]
+#        for index,row in matches.iterrows():
+#            key_la = build_la_address(row)
+#            key_rm = build_rm_address(row)
+#            uprn = row['uprn']
+#            keys.append({
+#                'uprn': uprn,
+#                'address': key_la['address'],
+#                'postcode': key_la['postcode'],
+#                'year': year,
+#                'type': 'LA'
+#            })
+#            keys.append({
+#                'uprn': uprn,
+#                'address': key_rm['address'],
+#                'postcode': key_rm['postcode'],
+#                'year': year,
+#                'type': 'RM'
+#            })
+#    return pd.DataFrame(keys)
 
 
-def build_la_address(row):
-# https://github.com/OrdnanceSurvey/AddressBase/blob/master/SQL/GeographicAddress-SingleLineAddress-Plus.sql
+# these are new - SQL, vectorised
+
+## DuckDB can ingest data from pandas:
+### pandas_df = pd.DataFrame({"a": [42]})
+### duckdb.sql("SELECT * FROM pandas_df")
+
+## DuckDB can convert query results into pandas:
+### duckdb.sql("SELECT 42").df()
 
 
-def build_canonical_address_list(df, dictionary):
-    uprns = set(df['uprn'])
+def build_la_address(df):
+    query = """
+        SELECT
+            uprn,
+            (
+                CASE WHEN la_organisation IS NOT NULL THEN la_organisation || ', ' ELSE '' END
+
+                -- Secondary Addressable Information
+                || CASE WHEN sao_text IS NOT NULL THEN sao_text || ', ' ELSE '' END
+                || CASE
+                    WHEN sao_start_number IS NOT NULL AND sao_start_suffix IS NULL AND sao_end_number IS NULL THEN sao_start_number::VARCHAR || ', '
+                    WHEN sao_start_number IS NULL THEN ''
+                    ELSE sao_start_number::VARCHAR
+                END
+                || CASE
+                    WHEN sao_start_suffix IS NOT NULL AND sao_end_number IS NULL THEN sao_start_suffix || ', '
+                    WHEN sao_start_suffix IS NOT NULL AND sao_end_number IS NOT NULL THEN sao_start_suffix
+                    ELSE ''
+                END
+                || CASE
+                    WHEN sao_end_suffix IS NOT NULL AND sao_end_number IS NOT NULL THEN '-'
+                    WHEN sao_start_number IS NOT NULL AND sao_end_number IS NOT NULL THEN '-'
+                    ELSE ''
+                END
+                || CASE
+                    WHEN sao_end_number IS NOT NULL AND sao_end_suffix IS NULL THEN sao_end_number::VARCHAR || ', '
+                    WHEN sao_end_number IS NULL THEN ''
+                    ELSE sao_end_number::VARCHAR
+                END
+                || CASE WHEN sao_end_suffix IS NOT NULL THEN sao_end_suffix || ', ' ELSE '' END
+
+                -- Primary Addressable Information
+                || CASE WHEN pao_text IS NOT NULL THEN pao_text || ', ' ELSE '' END
+                || CASE
+                    WHEN pao_start_number IS NOT NULL AND pao_start_suffix is null AND pao_end_number IS NULL THEN pao_start_number::VARCHAR || ' '
+                    WHEN pao_start_number IS NULL THEN ''
+                    ELSE pao_start_number::VARCHAR
+                END
+                || CASE
+                    WHEN pao_start_suffix IS NOT NULL AND pao_end_number IS NULL THEN pao_start_suffix || ', '
+                    WHEN pao_start_suffix IS NOT NULL AND pao_end_number IS NOT NULL THEN pao_start_suffix
+                    ELSE ''
+                END
+                || CASE
+                    WHEN pao_end_suffix IS NOT NULL AND pao_end_number IS NOT NULL THEN '-'
+                    WHEN pao_start_number IS NOT NULL AND pao_end_number IS NOT NULL THEN '-'
+                    ELSE ''
+                END
+                || CASE
+                    WHEN pao_end_number IS NOT NULL AND pao_end_suffix IS NULL THEN pao_end_number::VARCHAR || ', '
+                    WHEN pao_end_number IS NULL THEN '' ELSE pao_end_number::VARCHAR
+                END
+                || CASE WHEN pao_end_suffix IS NOT NULL THEN pao_end_suffix || ', ' ELSE '' END
+
+                || CASE WHEN street_description IS NOT NULL THEN street_description || ', ' ELSE '' END
+                || CASE WHEN locality IS NOT NULL THEN locality || ', ' ELSE '' END
+                || CASE WHEN town_name IS NOT NULL THEN town_name || '' ELSE '' END
+            ) AS address,
+            postcode_locator AS postcode
+        FROM df
+    """
+    return duckdb.sql(query).df()
+
+
+def build_rm_address(df):
+    """Add docstring"""
+    query = """
+        SELECT
+            uprn,
+            (
+                CASE WHEN department_name IS NOT NULL THEN department_name || ', ' ELSE '' END
+                || CASE WHEN rm_organisation_name IS NOT NULL THEN rm_organisation_name || ', ' ELSE '' END
+                || CASE WHEN sub_building_name IS NOT NULL THEN sub_building_name || ', ' ELSE '' END
+                || CASE WHEN building_name IS NOT NULL THEN building_name || ', ' ELSE '' END
+                || CASE WHEN building_number IS NOT NULL THEN building_number::VARCHAR || ' ' ELSE '' END
+                || CASE WHEN po_box_number IS NOT NULL THEN 'PO BOX ' || po_box_number || ', ' ELSE '' END
+                || CASE WHEN dependent_thoroughfare IS NOT NULL THEN dependent_thoroughfare || ', ' ELSE '' END
+                || CASE WHEN thoroughfare IS NOT NULL THEN thoroughfare || ', ' ELSE '' END
+                || CASE WHEN double_dependent_locality IS NOT NULL THEN double_dependent_locality || ', ' ELSE '' END
+                || CASE WHEN dependent_locality IS NOT NULL THEN dependent_locality || ', ' ELSE '' END
+                || CASE WHEN post_town IS NOT NULL THEN post_town || '' ELSE '' END
+            ) AS address,
+            postcode
+        FROM df
+    """
+    return duckdb.sql(query).df()
+
+
+def build_canonical_address_list(spine, addressbase_by_year):
+    uprns = set(spine["uprn"])
     keys = []
-    for year, df in dictionary.items():
-        matches = df[df['uprn'].isin(uprns)]
-        for index,row in matches.iterrows():
-            key_la = build_la_address(row)
-            key_rm = build_rm_address(row)
-            uprn = row['uprn']
-            keys.append({
-                'uprn': uprn,
-                'address': key_la['address'],
-                'postcode': key_la['postcode'],
-                'year': year,
-                'type': 'LA'
-            })
-            keys.append({
-                'uprn': uprn,
-                'address': key_rm['address'],
-                'postcode': key_rm['postcode'],
-                'year': year,
-                'type': 'RM'
-            })
-    return pd.DataFrame(keys)
-
+    for year, df in addressbase_by_year.items():
+        df = df[df["uprn"].isin(uprns)]
+        la = build_la_address(df)
+        la["year"] = year
+        la["type"] = "LA"
+        rm = build_rm_address(df)
+        rm["year"] = year
+        rm["type"] = "RM"
+        keys.extend([la, rm])
+    return pd.concat(keys, ignore_index=True)
