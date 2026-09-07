@@ -1,0 +1,53 @@
+---
+title: "Exploratory / development"
+format: html
+---
+
+Setup
+
+```{python}
+from pathlib import Path
+import pandas as pd
+
+from rent_project.config import (
+    PROJECT_ROOT,
+    DATA_DIRECTORY,
+)
+```
+
+Key questions:
+
+- Which areas have a lot of private renting?
+- Which areas saw the largest expansion in renting?
+- Which areas saw the largest increases in rents?
+- Which LAs saw the largest increases in prices?
+
+1. Tips for neighbourhoods/areas based on this (and licensing data availability; and transport infrastructure?)
+2. Find agents working in the areas, ask them questions that will help me narrow down the field, e.g. streets
+3. In parallel, identify streets in my data once I have property level information/estimates (is old or newbuild? owner-occupied or rented? individual or corporate landlord?). I am looking for streets that have a combination of individual private rentals; corporate private rentals; owner occupied homes; mostly old but some new. 
+
+```{python}
+
+# Highest levels of renting in 2021
+# LSOA
+# Census TS054 - Tenure
+
+tenure_lsoa_2011 = pd.read_csv(
+    DATA_DIRECTORY / 'raw' / 'area-housing-data' / 'census-tenure-2021-lsoa-TS054-machine-readable.csv'
+)
+
+# Highest increases in renting 2011 - 2021
+# LSOA
+# the above compared to QS405
+ 
+# Mode building age (not new developments)
+# LSOA
+
+# Highest increases in rents
+# LAD? LSOA?
+
+# Highest increases in property prices
+# LAD? LSOA?
+
+```
+
