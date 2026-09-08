@@ -22,7 +22,15 @@ Key questions:
 - Which areas saw the largest increases in rents?
 - Which LAs saw the largest increases in prices?
 
-1. Tips for neighbourhoods/areas based on this (and licensing data availability; and transport infrastructure?)
+1. Tips for neighbourhoods/areas based on this and:
+    licensing data availability
+    spatial planning policy designation post 2011
+        opportunity area?
+        ULEZ central zone (2019) or inner expansion (2021)
+    transport infrastructure announcement/improvement post 2011 (but there is less local/regional politics and associated debates here?)
+        Nine Elms?
+        Elizabeth Line works too, even though part is missed: https://internationalresidential.jll.com.sg/insights/news/crossrail---may-2022?utm_source=chatgpt.com 
+
 2. Find agents working in the areas, ask them questions that will help me narrow down the field, e.g. streets
 3. In parallel, identify streets in my data once I have property level information/estimates (is old or newbuild? owner-occupied or rented? individual or corporate landlord?). I am looking for streets that have a combination of individual private rentals; corporate private rentals; owner occupied homes; mostly old but some new. 
 
