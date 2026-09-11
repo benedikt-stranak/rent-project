@@ -1,23 +1,20 @@
-# rent-project
+# Rent project
 
-This repository does not include the data used in the analysis, as it is licensed from third parties (e.g. Ordnance Survey, ...) and cannot be redistributed. To reproduce this analysis, you will need to obtain:
+Tools to construct lists of residential addresses in the UK from OS AddressBase Plus epoch files and to estimate individual property prices and rental values.
 
-- [Dataset name] from [source]
-- [Dataset name] from [source]
-- Place files in data/raw/
+## Setup
 
-This project consists of three stages:
+Requires Python >= 3.12
 
-01 Assembling dataset
+```bash
+uv sync
+mkdir data
+```
 
-uv run build-dataset
+The repo does not include any of the source datasets, as these include licensed and safeguarded datasets:
+- OS AddressBase Plus 2011, 2021 and 2026 epochs
+- HASP WhenFresh/Zoopla Property Rentals
+- Land Registry Price Paid
+- EPC
 
-02 Modelling rental and price values
-
-uv run fit-models
-
-Plus a notebook for model diagnostics and comparison
-
-03 Analysis
-
-A notebook
+`data/` is gitignored.
