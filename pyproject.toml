@@ -10,12 +10,11 @@ requires-python = ">=3.12"
 dependencies = [
     "duckdb>=1.5.5",
     "pandas>=3.0.5",
+    "pyarrow>=25.0.1",
 ]
 
 [project.scripts]
-rent-project = "rent_project:main"
 build-dataset = "rent_project.pipelines.build_dataset:main"
-fit-models = "rent_project.pipelines.fit_models:main"
 
 [build-system]
 requires = ["uv_build>=0.12.0,<0.13.0"]

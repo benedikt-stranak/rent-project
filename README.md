@@ -18,3 +18,15 @@ The repo does not include any of the source datasets, as these include licensed 
 - EPC
 
 `data/` is gitignored.
+
+
+## Tasks
+
+AddressBase
+- harmonise - DONE
+- build spine - DONE
+- filter spine - DONE
+- switch things over to using parquet - DONE
+- build addresses - DONE
+- investigate addresses for issues
+- test addresses with a bigger area
