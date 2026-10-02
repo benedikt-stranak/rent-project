@@ -66,7 +66,8 @@ def step_clip_addressbase_by_year(schema_by_year):
     ADDRESSBASE_DIRECTORY_INTERIM.mkdir(parents=True, exist_ok=True)
     for year, schema in schema_by_year.items():
         output_path = (
-            ADDRESSBASE_DIRECTORY_INTERIM / f"greater_london_{year}_abplus_clipped.parquet"
+            ADDRESSBASE_DIRECTORY_INTERIM
+            / f"greater_london_{year}_abplus_clipped.parquet"
         )
         if output_path.exists():
             print(f"Skipped clipping {year} AddressBase Plus (already exists)")
@@ -89,7 +90,8 @@ def step_load_addressbase_by_year(years):
     for year in years:
         print(f"Loading {year} AddressBase Plus (clipped)")
         input_path = (
-            ADDRESSBASE_DIRECTORY_INTERIM / f"greater_london_{year}_abplus_clipped.parquet"
+            ADDRESSBASE_DIRECTORY_INTERIM
+            / f"greater_london_{year}_abplus_clipped.parquet"
         )
         addressbase_by_year[year] = load_clipped_addressbase(input_path)
     return addressbase_by_year

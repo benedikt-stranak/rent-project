@@ -28,5 +28,6 @@ AddressBase
 - filter spine - DONE
 - switch things over to using parquet - DONE
 - build addresses - DONE
-- investigate addresses for issues
+- investigate addresses for issues - DONE
 - test addresses with a bigger area
+- check borough-level totals

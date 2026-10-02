@@ -130,10 +130,7 @@ COLUMNS_TO_RENAME = {
     "organisation": "la_organisation",
     "locality_name": "locality",
 }
-
-# ----------------------------------------
-# Loading AddressBase Plus Schema
-# ----------------------------------------
+RM_EXCLUDED_YEARS = {2011}
 
 
 def load_schema_old(header_path):
@@ -254,11 +251,6 @@ def load_schema_new(header_path):
     return {"columns": columns, "dtypes": dtypes, "date_columns": date_columns}
 
 
-# ----------------------------------------
-# Building AddressBase Plus 2026
-# ----------------------------------------
-
-
 def unzip_all(zip_dir, extract_dir):
     """Extract every .zip in zip_dir into its own folder in extract_dir.
 
@@ -334,11 +326,6 @@ def load_and_concatenate(schema, extract_dir):
     combined = pd.concat(tiles, ignore_index=True)
     print(f"Loaded {len(combined):,} rows from {len(tiles)} tiles.")
     return combined
-
-
-# ----------------------------------------
-# Loading and filtering AddressBase Plus
-# ----------------------------------------
 
 
 def load_full_addressbase(schema, file_path):
@@ -485,11 +472,6 @@ def filter_addressbase_spine(spine):
     return spine[mask.fillna(False)].copy()
 
 
-# ----------------------------------------
-# Building AddressBase Plus addresses
-# ----------------------------------------
-
-
 def build_la_addresses(df):
     """Build a single address string per row from the local authority fields.
 
@@ -613,8 +595,9 @@ def build_rm_addresses(df):
 def build_address_list(spine, addressbase_by_year):
     """Build LA and Royal Mail addresses for every spine UPRN in every year.
 
-    Duplicates are not removed: an address that is unchanged across years
-    appears once per year and type.
+    Royal Mail addresses are not built for years in RM_EXCLUDED_YEARS (2011).
+    Blank addresses are dropped. Each unique (uprn, address, postcode) appears
+    once, with a list of every type and year it was found in.
 
     Parameters
     ----------
@@ -626,19 +609,33 @@ def build_address_list(spine, addressbase_by_year):
     Returns
     -------
     pandas.DataFrame
-        Long format. Columns: uprn, address, postcode, year,
-        type ("LA" or "RM").
+        Columns: uprn, address, postcode, appears_in
+        (e.g. "LA 2011, LA 2021, RM 2021, LA 2026, RM 2026").
     """
-
     uprns = set(spine["uprn"])
     addresses = []
+
     for year, df in addressbase_by_year.items():
         df = df[df["uprn"].isin(uprns)]
+
         la = build_la_addresses(df)
-        la["year"] = year
-        la["type"] = "LA"
-        rm = build_rm_addresses(df)
-        rm["year"] = year
-        rm["type"] = "RM"
-        addresses.extend([la, rm])
-    return pd.concat(addresses, ignore_index=True)
+        la["source"] = f"LA {year}"
+        addresses.append(la)
+
+        if int(year) not in RM_EXCLUDED_YEARS:
+            rm = build_rm_addresses(df)
+            rm["source"] = f"RM {year}"
+            addresses.append(rm)
+
+    out = pd.concat(addresses, ignore_index=True)
+
+    is_blank = out["address"].fillna("").str.strip(" ,") == ""
+    out = out[~is_blank]
+
+    out = (
+        out.groupby(["uprn", "address", "postcode"], dropna=False)["source"]
+        .agg(lambda s: ", ".join(s.unique()))
+        .reset_index(name="appears_in")
+    )
+
+    return out
