@@ -49,7 +49,6 @@ rgn = gpd.read_file(DATA_DIRECTORY / "raw" / "spatial-boundaries" / "Regions_Dec
 
 # Look at the attribute columns so you know what to filter on
 print(rgn.head())
-print(gdf.columns)
 
 # 2. Filter down to the one polygon you want, e.g. by an attribute value
 ldn = rgn[rgn["RGN25NM"] == "London"]
