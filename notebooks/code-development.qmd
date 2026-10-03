@@ -7,126 +7,193 @@ Setup
 
 ```{python}
 from pathlib import Path
+from zipfile import ZipFile
+
+import duckdb
 import pandas as pd
+import matplotlib.pyplot as plt
+import geopandas as gpd
 
 from rent_project.config import (
-    ADDRESSBASE_DIRECTORY_RAW,
     ADDRESSBASE_DIRECTORY_INTERIM,
+    ADDRESSBASE_DIRECTORY_RAW,
+    DATA_DIRECTORY,
 )
 from rent_project.load.addressbase import (
+    add_is_residential,
+    align_columns,
+    build_address_list,
+    build_addressbase_spine,
+    clip_greater_london,
+    filter_addressbase_spine,
+    load_and_concatenate,
+    load_clipped_addressbase,
     load_full_addressbase,
     load_schema_new,
     load_schema_old,
+    rename_columns,
+    unzip_all,
+)
+
+from rent_project.pipelines.build_dataset import (
+    step_load_addressbase_by_year,
+    step_harmonise_addressbase,
+    step_add_is_residential
 )
 ```
 
-AddressBase 2011, 21, 26 - Greater London Clipping
-
+Filtering Regions to London
 ```{python}
-#Load schemas
-addressbase_schema_old = load_schema_old(ADDRESSBASE_DIRECTORY_RAW / "addressbase-plus-pre-e-39-header.csv")
-addressbase_schema_new = load_schema_new(ADDRESSBASE_DIRECTORY_RAW / "addressbase-plus-post-e-39-header.csv")
+# 1. Load the shapefile (point to the .shp; the .shx, .dbf, and .prj must sit beside it)
+rgn = gpd.read_file(DATA_DIRECTORY / "raw" / "spatial-boundaries" / "Regions_December_2025_Boundaries_EN_BFE_4960550324708213025" / "RGN_DEC_2025_EN_BFE.shp")
 
-#Addressbase 2011
-ab2011full = load_full_addressbase(
-    addressbase_schema_old,
-    ADDRESSBASE_DIRECTORY_RAW / "2011" / "greater_london_2011_abplus.csv")
-ab2011clipped = load_full_addressbase(
-    addressbase_schema_old,
-    ADDRESSBASE_DIRECTORY_INTERIM / "greater_london_2011_abplus_clipped.csv")
-len(ab2011full.index)
-# 4168445 rows
-ab2011full['administrative_area'].isna().sum()
-# 19 NAs
-temp = ab2011full[ab2011full['administrative_area'].isna()] 
-# 19 NAs can ignore - not postal addresses
-ab2011full['administrative_area'].value_counts(dropna=False)
-len(ab2011clipped.index)
-# 4059727 rows
-ab2011clipped['administrative_area'].isna().sum()
-# No NAs
-ab2011clipped['administrative_area'].value_counts(dropna=False)
-del [ab2011full, ab2011clipped, temp]
+# Look at the attribute columns so you know what to filter on
+print(rgn.head())
+print(gdf.columns)
 
-#Addressbase 2021
-ab2021full = load_full_addressbase(
-    addressbase_schema_new,
-    ADDRESSBASE_DIRECTORY_RAW / "2021" / "greater_london_2021_abplus.csv")
-ab2021clipped = load_full_addressbase(
-    addressbase_schema_new,
-    ADDRESSBASE_DIRECTORY_INTERIM / "greater_london_2021_abplus_clipped.csv")
-len(ab2021full.index)
-# 4638995 rows
-ab2021full['administrative_area'].isna().sum()
-# No NAs
-ab2021full['administrative_area'].value_counts(dropna=False)
-len(ab2021clipped.index)
-# 4638561 rows
-ab2021clipped['administrative_area'].isna().sum()
-# No NAs
-ab2021clipped['administrative_area'].value_counts(dropna=False)
-del [ab2021full, ab2021clipped]
+# 2. Filter down to the one polygon you want, e.g. by an attribute value
+ldn = rgn[rgn["RGN25NM"] == "London"]
+print(ldn.crs)
 
-#Addressbase 2026
-ab2026full = load_full_addressbase(
-    addressbase_schema_new,
-    ADDRESSBASE_DIRECTORY_RAW / "2026" / "greater_london_2026_abplus.csv")
-ab2026clipped = load_full_addressbase(
-    addressbase_schema_new,
-    ADDRESSBASE_DIRECTORY_INTERIM / "greater_london_2026_abplus_clipped.csv")
-len(ab2026full.index)
-# 5269531 rows
-ab2026full['administrative_area'].isna().sum()
-# No NAs
-ab2026full['administrative_area'].value_counts(dropna=False)
-len(ab2026clipped.index)
-# 4842842 rows
-ab2026clipped['administrative_area'].isna().sum()
-# No NAs
-ab2026clipped['administrative_area'].value_counts(dropna=False)
-del [ab2026full, ab2026clipped]
-
+# 3. Save as GeoParquet
+ldn.to_parquet(DATA_DIRECTORY / "processed" / "spatial-boundaries" / "regions" / "rgn_2025_bfe_london.parquet")
 ```
 
-AddressBase 2011, 2021, 2026 - compare schemas
-
+Filtering Output Areas 2011 to London
 ```{python}
-# columns2011 = list(addressbase_by_year[2011].columns.values)
-# columns2021 = list(addressbase_by_year[2021].columns.values)
+# 1. Load the shapefile (point to the .shp; the .shx, .dbf, and .prj must sit beside it)
+oa_2011 = gpd.read_file(DATA_DIRECTORY / "raw" / "spatial-boundaries" / "Output_Area_2011_EW_BFE_V2" / "OA_2011_EW_BFE_V2.shp")
 
-# columns2011extras = list(set(columns2011) - set(columns2021))
-# columns2021extras = list(set(columns2021) - set(columns2011))
+# Look at the attribute columns so you know what to filter on
+print(oa_2011.columns)
+print(oa_2011.crs)
 
-# columns2011extras
-# columns2021extras
+# 2. Filter down to the one polygon you want, e.g. by an attribute value
+oa_2011_london = oa_2011[oa_2011["LAD11CD"].str.startswith("E09")].copy()
+print(oa_2011_london["LAD11CD"].nunique())  # should be 33
+print(len(oa_2011_london))                  # should be 25,053
+
+# 3. Keep only the output area code (plus geometry)
+oa_2011_london = oa_2011_london[["OA11CD", "geometry"]]
+
+# 4. Save as GeoParquet
+oa_2011_london.to_parquet(DATA_DIRECTORY / "processed" / "spatial-boundaries" / "output-areas" / "oa_2011_bfe_london.parquet")
 ```
 
-
-Check value counts
+Filtering Output Areas 2021 to London
 ```{python}
-#addressbase_by_year[2026]['state'].value_counts(dropna=False)
-# construction, use, vacant/derelict ...
+# 1. Load the shapefile (point to the .shp; the .shx, .dbf, and .prj must sit beside it)
+oa_2021 = gpd.read_file(DATA_DIRECTORY / "raw" / "spatial-boundaries" / "OA_2021_EW_BFE_V9" / "OA_2021_EW_BFE_V9.shp")
 
-#addressbase_by_year[2026]['class'].value_counts(dropna=False)
-# RD06, RD04, ... (177, 312, 312 values)
+# Look at the attribute columns so you know what to filter on
+print(oa_2021.columns)
+print(oa_2021.crs)
 
-#addressbase_by_year[2026]['area_name'].value_counts(dropna=False)
-# all NA, don't need
-
-#addressbase_by_year[2026]['area_name'].value_counts(dropna=False)
-# all NA, don't need
-```
-
-
-Playing with Pandas
-
-```{python}
-zkus_dictionary = {
-    1: ['A', 'B', 'C'],
-    2: ['D', 'E', 'F'],
-    3: ['G', 'H', 'I']
+# 2. Filter down to the one polygon you want, e.g. by an attribute value
+london_lads = {
+    "Barking and Dagenham", "Barnet", "Bexley", "Brent", "Bromley", "Camden",
+    "City of London", "Croydon", "Ealing", "Enfield", "Greenwich", "Hackney",
+    "Hammersmith and Fulham", "Haringey", "Harrow", "Havering", "Hillingdon",
+    "Hounslow", "Islington", "Kensington and Chelsea", "Kingston upon Thames",
+    "Lambeth", "Lewisham", "Merton", "Newham", "Redbridge",
+    "Richmond upon Thames", "Southwark", "Sutton", "Tower Hamlets",
+    "Waltham Forest", "Wandsworth", "Westminster",
 }
 
-zkus_pandas = pd.DataFrame(zkus_dictionary)
+lad_name = oa_2021["LSOA21NM"].str.replace(r"\s\d{3}[A-Z]$", "", regex=True)
+mask = lad_name.isin(london_lads)
+oa_2021_london = oa_2021[mask].copy()
+
+print(lad_name[mask].nunique())  # should be 33
+print(len(oa_2021_london))       # roughly 26,000
+
+# 3. Keep only the output area code (plus geometry)
+oa_2021_london = oa_2021_london[["OA21CD", "geometry"]]
+
+# 4. Save as GeoParquet
+oa_2021_london.to_parquet(DATA_DIRECTORY / "processed" / "spatial-boundaries" / "output-areas" / "oa_2021_bfe_london.parquet")
+```
+
+
+
+
+National Statistics UPRN Lookup (June 2026) (Epoch 127) meets AddressBase
+
+```{python}
+# NSUL
+cols = ["UPRN", "OA21CD", "LSOA21CD", "MSOA21CD", "WD25CD", "PCON24CD", "LAD25CD", "RGN25CD"]
+nsul_2026 = pd.read_csv(
+    DATA_DIRECTORY / "raw" / "national-statistics-uprn-lookup" / "NSUL_E127_JUN_2026" / "Data" / "NSUL_E127_JUN_2026_LN.csv",
+    usecols=cols,
+    dtype={c: str for c in cols} | {"UPRN": "Int64"},
+)
+nsul_2026["OA21CD"].isna().sum() # 0 NA
+
+# AddressBase
+addressbase_by_year = step_load_addressbase_by_year([2011, 2021, 2026])
+addressbase_by_year = step_harmonise_addressbase(addressbase_by_year)
+addressbase_by_year = step_add_is_residential(addressbase_by_year)
+ab_2011 = addressbase_by_year[2011]
+ab_2021 = addressbase_by_year[2021]
+ab_2026 = addressbase_by_year[2026]
+
+# NSUL x AddressBase 2026
+ab_2026_nsul_2026 = pd.merge(
+    ab_2026, nsul_2026, how='left', left_on='uprn', right_on='UPRN'
+)
+
+ab_2026_nsul_2026_unmatched = ab_2026_nsul_2026[ab_2026_nsul_2026["OA21CD"].isna()]
+# 412 NA
+
+ab_2026_nsul_2026_unmatched[ab_2026_nsul_2026_unmatched["OA21CD"].isna()].value_counts("is_residential_space")
+# 100 residential spaces
+
+len(ab_2026_nsul_2026_unmatched[ab_2026_nsul_2026_unmatched["OA21CD"].isna()].value_counts("local_custodian_code"))
+# 19 different authorities
+
+plt.scatter(ab_2026_nsul_2026_unmatched["x_coordinate"], ab_2026_nsul_2026_unmatched["y_coordinate"], s=1)
+plt.gca().set_aspect("equal")
+plt.show()
+# all around the edges = it works!!!
+
+
+# NSUL x AddressBase 2021
+ab_2021_nsul_2026 = pd.merge(
+    ab_2021, nsul_2026, how='left', left_on='uprn', right_on='UPRN'
+)
+
+ab_2021_nsul_2026_unmatched = ab_2021_nsul_2026[ab_2021_nsul_2026["OA21CD"].isna()]
+# 21408 NA
+
+ab_2021_nsul_2026_unmatched[ab_2021_nsul_2026_unmatched["OA21CD"].isna()].value_counts("is_residential_space")
+# 741 residential spaces
+
+len(ab_2021_nsul_2026_unmatched[ab_2021_nsul_2026_unmatched["OA21CD"].isna()].value_counts("local_custodian_code"))
+# 34 different authorities
+
+plt.scatter(ab_2021_nsul_2026_unmatched["x_coordinate"], ab_2021_nsul_2026_unmatched["y_coordinate"], s=1)
+plt.gca().set_aspect("equal")
+plt.show()
+# everywhere = need 2021 file!!!
+
+
+# NSUL x AddressBase 2011
+ab_2011_nsul_2026 = pd.merge(
+    ab_2011, nsul_2026, how='left', left_on='uprn', right_on='UPRN'
+)
+
+ab_2011_nsul_2026_unmatched = ab_2011_nsul_2026[ab_2011_nsul_2026["OA21CD"].isna()]
+# 56293 NA
+
+ab_2011_nsul_2026_unmatched[ab_2011_nsul_2026_unmatched["OA21CD"].isna()].value_counts("is_residential_space")
+# 25297 residential spaces
+
+len(ab_2011_nsul_2026_unmatched[ab_2011_nsul_2026_unmatched["OA21CD"].isna()].value_counts("local_custodian_code"))
+# 35 different authorities
+
+plt.scatter(ab_2011_nsul_2026_unmatched["x_coordinate"], ab_2011_nsul_2026_unmatched["y_coordinate"], s=1)
+plt.gca().set_aspect("equal")
+plt.show()
+# everywhere = need 2021 file!!!
 
 ```

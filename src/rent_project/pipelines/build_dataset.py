@@ -175,11 +175,14 @@ def main():
 
     # Stage 1: one-off preparation (skipped if outputs already exist)
     step_build_addressbase_2026(schema_new)
+
     step_clip_addressbase_by_year(schema_by_year)
 
     # Stage 2: load and harmonise
     addressbase_by_year = step_load_addressbase_by_year([2011, 2021, 2026])
     addressbase_by_year = step_harmonise_addressbase(addressbase_by_year)
+
+    
     addressbase_by_year = step_add_is_residential(addressbase_by_year)
     # write a file at this point?
 
