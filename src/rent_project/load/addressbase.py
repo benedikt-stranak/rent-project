@@ -4,54 +4,11 @@ from pathlib import Path
 from zipfile import ZipFile
 
 import duckdb
+import geopandas as gpd
 import pandas as pd
 
-LONDON_BOROUGHS = [
-    "LONDON",
-    "GREATER LONDON",
-    "CITY OF WESTMINSTER",
-    "TOWER HAMLETS",
-    "LB OF TOWER HAMLETS",
-    "WANDSWORTH",
-    "CROYDON",
-    "BARNET",
-    "LONDON BOROUGH OF BARNET",
-    "SOUTHWARK",
-    "LAMBETH",
-    "EALING",
-    "BROMLEY",
-    "LONDON BOROUGH OF BROMLEY",
-    "CAMDEN",
-    "BRENT",
-    "LEWISHAM",
-    "NEWHAM",
-    "ENFIELD",
-    "GREENWICH",
-    "LONDON BOROUGH OF GREENWICH",
-    "HACKNEY",
-    "ISLINGTON",
-    "HILLINGDON",
-    "HARINGEY",
-    "LONDON BOROUGH OF HARINGEY",
-    "WALTHAM FOREST",
-    "HOUNSLOW",
-    "LONDON BOROUGH OF HOUNSLOW",
-    "HAMMERSMITH AND FULHAM",
-    "HAMMERSMITH",
-    "LBHF",
-    "REDBRIDGE",
-    "HAVERING",
-    "LONDON BOROUGH OF HAVERING",
-    "KENSINGTON AND CHELSEA",
-    "BEXLEY",
-    "MERTON",
-    "HARROW",
-    "RICHMOND UPON THAMES",
-    "BARKING AND DAGENHAM",
-    "SUTTON",
-    "KINGSTON UPON THAMES",
-    "CITY OF LONDON",
-]
+BNG_CRS = "EPSG:27700"  # British National Grid, the CRS of AddressBase x/y
+
 COLUMNS_TO_KEEP = [
     "uprn",
     "parent_uprn",
@@ -117,6 +74,12 @@ COLUMNS_TO_KEEP = [
     "voa_ndr_record",
     "voa_ndr_p_desc_code",
     "voa_ndr_scat_code",
+    "oa11cd",  # added by clip_to_output_areas (2011 only)
+    "lsoa11cd",  # added by add_area_codes (2011 only)
+    "lad11cd",  # added by add_area_codes (2011 only)
+    "oa21cd",  # added by clip_to_output_areas (2021 and 2026)
+    "lsoa21cd",  # added by add_area_codes (2021 and 2026)
+    "lad21cd",  # added by add_area_codes (2021 and 2026)
 ]
 COLUMNS_TO_RENAME = {
     "rm_udprn": "udprn",
@@ -130,7 +93,14 @@ COLUMNS_TO_RENAME = {
     "organisation": "la_organisation",
     "locality_name": "locality",
 }
-RM_EXCLUDED_YEARS = {2011}
+AREA_CODE_COLUMNS = [
+    "oa11cd",
+    "lsoa11cd",
+    "lad11cd",
+    "oa21cd",
+    "lsoa21cd",
+    "lad21cd",
+]
 
 
 def load_schema_old(header_path):
@@ -294,14 +264,14 @@ def load_tile(schema, file_path):
     pandas.DataFrame
     """
 
-    df = pd.read_csv(
+    tile = pd.read_csv(
         file_path,
         header=None,
         names=schema["columns"],
         dtype=schema["dtypes"],
         parse_dates=schema["date_columns"],
     )
-    return df
+    return tile
 
 
 def load_and_concatenate(schema, extract_dir):
@@ -322,17 +292,18 @@ def load_and_concatenate(schema, extract_dir):
 
     csv_paths = sorted(Path(extract_dir).rglob("*.csv"))
     print(f"Loading {len(csv_paths)} tiles")
-    tiles = [load_tile(schema, p) for p in csv_paths]
-    combined = pd.concat(tiles, ignore_index=True)
-    print(f"Loaded {len(combined):,} rows from {len(tiles)} tiles.")
-    return combined
+    tiles = [load_tile(schema, csv_path) for csv_path in csv_paths]
+    addressbase = pd.concat(tiles, ignore_index=True)
+    print(f"Loaded {len(addressbase):,} rows from {len(tiles)} tiles.")
+    return addressbase
 
 
 def load_full_addressbase(schema, file_path):
     """Load a combined AddressBase Plus CSV that has a header row.
 
-    Unlike load_tile, column names are read from the file itself;
-    the schema only supplies dtypes and date columns.
+    Unlike load_tile, column names are read from the file itself and
+    lowercased, so they match the schema whatever case the file uses.
+    The schema only supplies dtypes and date columns.
 
     Parameters
     ----------
@@ -346,14 +317,20 @@ def load_full_addressbase(schema, file_path):
     pandas.DataFrame
     """
 
-    df = pd.read_csv(
-        file_path, dtype=schema["dtypes"], parse_dates=schema["date_columns"]
+    header = pd.read_csv(file_path, nrows=0).columns
+    names = [c.lower() for c in header]
+    addressbase = pd.read_csv(
+        file_path,
+        header=0,
+        names=names,
+        dtype=schema["dtypes"],
+        parse_dates=schema["date_columns"],
     )
-    return df
+    return addressbase
 
 
-def load_clipped_addressbase(file_path):
-    """Load a clipped AddressBase Plus parquet file.
+def load_harmonised_addressbase(file_path):
+    """Load a clipped and harmonised AddressBase Plus parquet file.
 
     Parquet stores column types in the file, so no schema is needed.
     """
@@ -361,68 +338,180 @@ def load_clipped_addressbase(file_path):
     return pd.read_parquet(file_path)
 
 
-def clip_greater_london(df):
-    """Keep only rows whose administrative_area is in LONDON_BOROUGHS."""
+def load_oa_boundaries(file_path):
+    """Load an output area boundary geoparquet in British National Grid.
 
-    df = df[df["administrative_area"].isin(LONDON_BOROUGHS)]
-    return df
+    The file has one non-geometry column holding the OA code (OA11CD or
+    OA21CD). That column is lowercased (oa11cd / oa21cd) to match the
+    AddressBase column naming. The index is reset so that sjoin always
+    names the joined index column index_right.
+
+    Parameters
+    ----------
+    file_path : Path
+        Geoparquet of output area polygons.
+
+    Returns
+    -------
+    geopandas.GeoDataFrame
+        Columns: the lowercased OA code column and geometry.
+    """
+
+    oa_boundaries = gpd.read_parquet(file_path)
+    if oa_boundaries.crs is None:
+        raise ValueError(f"{file_path.name} has no CRS set")
+    oa_boundaries = oa_boundaries.to_crs(BNG_CRS).reset_index(drop=True)
+
+    code_column = oa_boundaries.columns.drop(oa_boundaries.geometry.name)[0]
+    return oa_boundaries.rename(columns={code_column: code_column.lower()})
 
 
-def rename_columns(df):
+def load_oa_lookup(file_path, columns):
+    """Load an ONS output area lookup CSV, keeping and renaming some columns.
+
+    Column names are lowercased before selecting, since ONS files vary
+    in case. utf-8-sig strips the byte-order mark some ONS CSVs start with.
+
+    Parameters
+    ----------
+    file_path : Path
+        ONS lookup CSV.
+    columns : dict
+        Lowercase column name in the file -> name to use in the output.
+
+    Returns
+    -------
+    pandas.DataFrame
+        The selected columns, renamed, as strings.
+    """
+
+    lookup = pd.read_csv(file_path, dtype=str, encoding="utf-8-sig")
+    lookup.columns = lookup.columns.str.lower()
+    return lookup[list(columns)].rename(columns=columns)
+
+
+def clip_to_output_areas(addressbase, oa_boundaries):
+    """Keep rows whose point falls in an output area, and add its OA code.
+
+    Points are built from x_coordinate / y_coordinate (British National Grid).
+    A point lying exactly on a boundary shared by two OAs matches both; the
+    first match is kept so every row gets exactly one OA code.
+
+    Parameters
+    ----------
+    addressbase : pandas.DataFrame
+        AddressBase Plus rows.
+    oa_boundaries : geopandas.GeoDataFrame
+        Output of load_oa_boundaries.
+
+    Returns
+    -------
+    pandas.DataFrame
+        The rows inside the boundaries, with the OA code column added
+        (oa11cd or oa21cd). Plain DataFrame, no geometry column.
+    """
+
+    points = gpd.GeoDataFrame(
+        addressbase,
+        geometry=gpd.points_from_xy(
+            addressbase["x_coordinate"], addressbase["y_coordinate"]
+        ),
+        crs=BNG_CRS,
+    )
+    joined = gpd.sjoin(points, oa_boundaries, how="inner", predicate="intersects")
+    joined = joined[~joined.index.duplicated(keep="first")].sort_index()
+
+    n_kept, n_total = len(joined), len(addressbase)
+    print(f"Kept {n_kept:,} of {n_total:,} rows inside the output areas")
+    return pd.DataFrame(joined.drop(columns=["geometry", "index_right"]))
+
+
+def add_area_codes(addressbase, lookup, oa_column):
+    """Add LSOA and LAD codes to addressbase by joining on its OA code.
+
+    Raises if the lookup has duplicate OA codes, or if any row's OA code
+    is not in the lookup.
+
+    Parameters
+    ----------
+    addressbase : pandas.DataFrame
+        AddressBase Plus rows with an OA code column (oa11cd or oa21cd).
+    lookup : pandas.DataFrame
+        Output of load_oa_lookup, containing oa_column.
+    oa_column : str
+        The column to join on ("oa11cd" or "oa21cd").
+
+    Returns
+    -------
+    pandas.DataFrame
+    """
+
+    addressbase = addressbase.merge(
+        lookup, on=oa_column, how="left", validate="many_to_one"
+    )
+    added_columns = [c for c in lookup.columns if c != oa_column]
+    n_unmatched = addressbase[added_columns[0]].isna().sum()
+    if n_unmatched:
+        raise ValueError(f"{n_unmatched:,} rows have an {oa_column} not in the lookup")
+    return addressbase
+
+
+def rename_columns(addressbase):
     """Rename pre-epoch-39 columns to their epoch-39+ names (see COLUMNS_TO_RENAME).
 
     This lets all years share one set of column names.
     """
 
-    renamed = df.rename(columns=COLUMNS_TO_RENAME)
-    return renamed
+    return addressbase.rename(columns=COLUMNS_TO_RENAME)
 
 
-def align_columns(addressbase_by_year):
-    """Give every year the same columns, in the same order (COLUMNS_TO_KEEP).
+def align_columns(addressbase):
+    """Give addressbase exactly the COLUMNS_TO_KEEP columns, in that order.
 
-    Columns in COLUMNS_TO_KEEP that a year lacks are added and filled with NA.
-    Columns not in COLUMNS_TO_KEEP are dropped. Both lists are printed per year.
+    Columns in COLUMNS_TO_KEEP that addressbase lacks are added and filled
+    with NA.
+    Columns not in COLUMNS_TO_KEEP are dropped. Both lists are printed.
 
     Parameters
     ----------
-    addressbase_by_year : dict
-        Year -> AddressBase Plus DataFrame.
+    addressbase : pandas.DataFrame
+        One year of AddressBase Plus.
 
     Returns
     -------
-    dict
-        Year -> DataFrame with exactly the COLUMNS_TO_KEEP columns.
+    pandas.DataFrame
     """
 
-    aligned = {}
-    for year, df in addressbase_by_year.items():
-        missing = [c for c in COLUMNS_TO_KEEP if c not in df.columns]
-        dropped = [c for c in df.columns if c not in COLUMNS_TO_KEEP]
-        print(year, "missing:", missing)
-        print(year, "dropped:", dropped)
-        aligned[year] = df.reindex(columns=COLUMNS_TO_KEEP)
-    return aligned
+    missing = [c for c in COLUMNS_TO_KEEP if c not in addressbase.columns]
+    dropped = [c for c in addressbase.columns if c not in COLUMNS_TO_KEEP]
+    print("missing:", missing)
+    print("dropped:", dropped)
+    return addressbase.reindex(columns=COLUMNS_TO_KEEP)
 
 
-def add_is_residential(df):
-    """Return df with an added boolean column is_residential_space.
+def add_is_residential(addressbase):
+    """Return addressbase with an added boolean column is_residential_space.
 
     True where class is "R" (residential, not further classified) or starts
     with "RD" (dwelling) or "RH" (house in multiple occupation), as recorded
     in this year's snapshot. NA where class is missing.
     """
 
-    is_residential = df["class"].eq("R") | df["class"].str[:2].isin(["RD", "RH"])
-    return df.assign(is_residential_space=is_residential)
+    is_unclassified_residential = addressbase["class"].eq("R")
+    is_dwelling_or_hmo = addressbase["class"].str[:2].isin(["RD", "RH"])
+    return addressbase.assign(
+        is_residential_space=is_unclassified_residential | is_dwelling_or_hmo
+    )
 
 
 def build_addressbase_spine(addressbase_by_year):
     """Build one row per UPRN that appears in any year.
 
     For each year, records whether the UPRN was residential and its state
-    in that year (NA if the UPRN was absent). Coordinates come from the
-    most recent year in which the UPRN appears.
+    in that year (NA if the UPRN was absent). Coordinates and area codes
+    come from the most recent year in which the UPRN has a value: 2021
+    codes from 2026 or 2021, and 2011 codes from 2011 only (so they are
+    NA for UPRNs absent from 2011).
 
     Assumes each UPRN appears at most once per year.
 
@@ -434,45 +523,76 @@ def build_addressbase_spine(addressbase_by_year):
     Returns
     -------
     pandas.DataFrame
-        Columns: uprn, x_coordinate, y_coordinate,
-        then is_residential_<year> and state_<year> for each year.
+        Columns: uprn, x_coordinate, y_coordinate, oa11cd, lsoa11cd,
+        lad11cd, oa21cd, lsoa21cd, lad21cd, then is_residential_<year>
+        and state_<year> for each year.
     """
 
     uprns = pd.Index(
-        pd.concat([df["uprn"] for df in addressbase_by_year.values()]).unique(),
+        pd.concat(
+            [addressbase["uprn"] for addressbase in addressbase_by_year.values()]
+        ).unique(),
         name="uprn",
     )
-    out = pd.DataFrame(index=uprns)
+    spine = pd.DataFrame(index=uprns)
     coords = pd.DataFrame(
         index=uprns, columns=["x_coordinate", "y_coordinate"], dtype=float
     )
-    for year in sorted(addressbase_by_year):
-        df = addressbase_by_year[year]
-        wave = df.set_index("uprn")[
-            ["is_residential_space", "state", "x_coordinate", "y_coordinate"]
+    area_codes = pd.DataFrame(index=uprns, columns=AREA_CODE_COLUMNS, dtype="string")
+    for year, addressbase in sorted(addressbase_by_year.items()):
+        addressbase = addressbase.set_index("uprn")[
+            [
+                "is_residential_space",
+                "state",
+                "x_coordinate",
+                "y_coordinate",
+                *AREA_CODE_COLUMNS,
+            ]
         ].reindex(uprns)
-        out[f"is_residential_{year}"] = wave["is_residential_space"]
-        out[f"state_{year}"] = wave["state"]
-        coords = wave[["x_coordinate", "y_coordinate"]].combine_first(coords)
-    return pd.concat([coords, out], axis=1).reset_index()
+        spine[f"is_residential_{year}"] = addressbase["is_residential_space"]
+        spine[f"state_{year}"] = addressbase["state"]
+        coords = addressbase[["x_coordinate", "y_coordinate"]].combine_first(coords)
+        area_codes = (
+            addressbase[AREA_CODE_COLUMNS].astype("string").combine_first(area_codes)
+        )
+    return pd.concat([coords, area_codes, spine], axis=1).reset_index()
 
 
 def filter_addressbase_spine(spine):
-    """Keep UPRNs that were residential and in use or vacant in at least one year.
+    """Keep UPRNs that were residential and in use, vacant (or missing a state) in at least one year.
 
-    "In use or vacant" means state 2 or 3. Expects the residential_ and
-    state_ columns for 2011, 2021 and 2026, as built by build_addressbase_spine.
+    Keeps the following "state" values:
+    2 In use
+    3 Unoccupied / vacant / derelict
+    NA (because state variable is optional in AddressBase)
+
+    Drops the following "state" values:
+    1 Under construction
+    4 No longer existing
+    6 Planning permission granted
+
+    Expects the residential_ and state_ columns for 2011, 2021 and 2026, as built by
+    build_addressbase_spine.
     """
 
     mask = (
-        (spine["is_residential_2011"] & spine["state_2011"].isin(["2", "3"]))
-        | (spine["is_residential_2021"] & spine["state_2021"].isin(["2", "3"]))
-        | (spine["is_residential_2026"] & spine["state_2026"].isin(["2", "3"]))
+        (
+            spine["is_residential_2011"]
+            & (spine["state_2011"].isin(["2", "3"]) | spine["state_2011"].isna())
+        )
+        | (
+            spine["is_residential_2021"]
+            & (spine["state_2021"].isin(["2", "3"]) | spine["state_2021"].isna())
+        )
+        | (
+            spine["is_residential_2026"]
+            & (spine["state_2026"].isin(["2", "3"]) | spine["state_2026"].isna())
+        )
     )
     return spine[mask.fillna(False)].copy()
 
 
-def build_la_addresses(df):
+def build_la_addresses(addressbase):
     """Build a single address string per row from the local authority fields.
 
     Combines organisation, secondary and primary addressable objects
@@ -480,7 +600,7 @@ def build_la_addresses(df):
 
     Parameters
     ----------
-    df : pandas.DataFrame
+    addressbase : pandas.DataFrame
         AddressBase Plus rows (harmonised column names).
 
     Returns
@@ -547,12 +667,12 @@ def build_la_addresses(df):
                 || CASE WHEN town_name IS NOT NULL THEN town_name || '' ELSE '' END
             ) AS address,
             postcode_locator AS postcode
-        FROM df
+        FROM addressbase
     """
     return duckdb.sql(query).df()
 
 
-def build_rm_addresses(df):
+def build_rm_addresses(addressbase):
     """Build a single address string per row from the Royal Mail (PAF) fields.
 
     Combines department, organisation, building, thoroughfare, locality
@@ -561,7 +681,7 @@ def build_rm_addresses(df):
 
     Parameters
     ----------
-    df : pandas.DataFrame
+    addressbase : pandas.DataFrame
         AddressBase Plus rows (harmonised column names).
 
     Returns
@@ -587,7 +707,7 @@ def build_rm_addresses(df):
                 || CASE WHEN post_town IS NOT NULL THEN post_town || '' ELSE '' END
             ) AS address,
             postcode
-        FROM df
+        FROM addressbase
     """
     return duckdb.sql(query).df()
 
@@ -595,7 +715,7 @@ def build_rm_addresses(df):
 def build_address_list(spine, addressbase_by_year):
     """Build LA and Royal Mail addresses for every spine UPRN in every year.
 
-    Royal Mail addresses are not built for years in RM_EXCLUDED_YEARS (2011).
+    Royal Mail addresses are not built for 2011.
     Blank addresses are dropped. Each unique (uprn, address, postcode) appears
     once, with a list of every type and year it was found in.
 
@@ -613,29 +733,29 @@ def build_address_list(spine, addressbase_by_year):
         (e.g. "LA 2011, LA 2021, RM 2021, LA 2026, RM 2026").
     """
     uprns = set(spine["uprn"])
-    addresses = []
+    address_tables = []
 
-    for year, df in addressbase_by_year.items():
-        df = df[df["uprn"].isin(uprns)]
+    for year, addressbase in addressbase_by_year.items():
+        addressbase = addressbase[addressbase["uprn"].isin(uprns)]
 
-        la = build_la_addresses(df)
-        la["source"] = f"LA {year}"
-        addresses.append(la)
+        la_addresses = build_la_addresses(addressbase)
+        la_addresses["source"] = f"LA {year}"
+        address_tables.append(la_addresses)
 
-        if int(year) not in RM_EXCLUDED_YEARS:
-            rm = build_rm_addresses(df)
-            rm["source"] = f"RM {year}"
-            addresses.append(rm)
+        if year != 2011:  # 2011 has no usable Royal Mail fields
+            rm_addresses = build_rm_addresses(addressbase)
+            rm_addresses["source"] = f"RM {year}"
+            address_tables.append(rm_addresses)
 
-    out = pd.concat(addresses, ignore_index=True)
+    addresses = pd.concat(address_tables, ignore_index=True)
 
-    is_blank = out["address"].fillna("").str.strip(" ,") == ""
-    out = out[~is_blank]
+    is_blank = addresses["address"].fillna("").str.strip(" ,") == ""
+    addresses = addresses[~is_blank]
 
-    out = (
-        out.groupby(["uprn", "address", "postcode"], dropna=False)["source"]
+    addresses = (
+        addresses.groupby(["uprn", "address", "postcode"], dropna=False)["source"]
         .agg(lambda s: ", ".join(s.unique()))
         .reset_index(name="appears_in")
     )
 
-    return out
+    return addresses

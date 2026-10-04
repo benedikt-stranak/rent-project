@@ -6,17 +6,22 @@ Run with: uv run build-dataset
 from rent_project.config import (
     ADDRESSBASE_DIRECTORY_INTERIM,
     ADDRESSBASE_DIRECTORY_RAW,
+    LOOKUP_DIRECTORY,
+    OA_DIRECTORY,
 )
 from rent_project.load.addressbase import (
+    add_area_codes,
     add_is_residential,
     align_columns,
     build_address_list,
     build_addressbase_spine,
-    clip_greater_london,
+    clip_to_output_areas,
     filter_addressbase_spine,
     load_and_concatenate,
-    load_clipped_addressbase,
     load_full_addressbase,
+    load_harmonised_addressbase,
+    load_oa_boundaries,
+    load_oa_lookup,
     load_schema_new,
     load_schema_old,
     rename_columns,
@@ -55,67 +60,72 @@ def step_build_addressbase_2026(schema):
     addressbase_2026.to_csv(output_path, index=False)
 
 
-def step_clip_addressbase_by_year(schema_by_year):
-    """Clip each year's AddressBase Plus to Greater London.
+def step_clip_and_harmonise_addressbase(year, schema, oa_path, lookup):
+    """Clip one year to London output areas, add area codes, harmonise, and save as parquet.
 
-    Reads the raw CSV for each year and writes the clipped version to
-    interim/address-base-plus/ as parquet. Years whose output already
-    exists are skipped.
+    Loads the raw CSV, keeps points inside the OA boundaries (adding oa11cd
+    or oa21cd), adds LSOA and LAD codes from the OA lookup, renames 2011
+    columns to their newer names, aligns to COLUMNS_TO_KEEP, and writes
+    interim/address-base-plus/greater_london_<year>_abplus_harmonised.parquet.
+    Skipped if that file already exists.
     """
 
+    output_path = (
+        ADDRESSBASE_DIRECTORY_INTERIM
+        / f"greater_london_{year}_abplus_harmonised.parquet"
+    )
+    if output_path.exists():
+        print(f"Skipped {year} AddressBase Plus (already clipped and harmonised)")
+        return
     ADDRESSBASE_DIRECTORY_INTERIM.mkdir(parents=True, exist_ok=True)
-    for year, schema in schema_by_year.items():
-        output_path = (
-            ADDRESSBASE_DIRECTORY_INTERIM
-            / f"greater_london_{year}_abplus_clipped.parquet"
-        )
-        if output_path.exists():
-            print(f"Skipped clipping {year} AddressBase Plus (already exists)")
-            continue
-        print(f"Loading {year} AddressBase Plus")
-        addressbase = load_full_addressbase(
-            schema,
-            ADDRESSBASE_DIRECTORY_RAW / str(year) / f"greater_london_{year}_abplus.csv",
-        )
-        print(f"Clipping {year} AddressBase Plus")
-        addressbase = clip_greater_london(addressbase)
-        print(f"Writing {year} AddressBase Plus (clipped parquet)")
-        addressbase.to_parquet(output_path, index=False)
+
+    print(f"Loading {year} AddressBase Plus")
+    addressbase = load_full_addressbase(
+        schema,
+        ADDRESSBASE_DIRECTORY_RAW / str(year) / f"greater_london_{year}_abplus.csv",
+    )
+
+    print(f"Clipping {year} AddressBase Plus to {oa_path.name}")
+    oa_boundaries = load_oa_boundaries(oa_path)
+    addressbase = clip_to_output_areas(addressbase, oa_boundaries)
+
+    print(f"Adding LSOA and LAD codes to {year} AddressBase Plus")
+    oa_column = "oa11cd" if year == 2011 else "oa21cd"
+    addressbase = add_area_codes(addressbase, lookup, oa_column)
+
+    print(f"Harmonising {year} AddressBase Plus")
+    if year == 2011:  # pre-epoch-39 column names
+        addressbase = rename_columns(addressbase)
+    addressbase = align_columns(addressbase)
+
+    print(f"Writing {year} AddressBase Plus to {output_path.name}")
+    addressbase.to_parquet(output_path, index=False)
 
 
-def step_load_addressbase_by_year(years):
-    """Load the clipped parquet files. Returns a dict of year -> DataFrame."""
+def step_load_addressbase(year):
+    """Load one year's clipped and harmonised parquet.
 
-    addressbase_by_year = {}
-    for year in years:
-        print(f"Loading {year} AddressBase Plus (clipped)")
-        input_path = (
-            ADDRESSBASE_DIRECTORY_INTERIM
-            / f"greater_london_{year}_abplus_clipped.parquet"
-        )
-        addressbase_by_year[year] = load_clipped_addressbase(input_path)
-    return addressbase_by_year
-
-
-def step_harmonise_addressbase(addressbase_by_year):
-    """Give all years the same column names and columns.
-
-    Renames the 2011 columns to their newer names, then aligns every
-    year to COLUMNS_TO_KEEP. Returns a new dict of year -> DataFrame.
+    Raises if any UPRN appears more than once, since the spine assumes
+    one row per UPRN per year.
     """
 
-    addressbase_by_year = dict(addressbase_by_year)
-    addressbase_by_year[2011] = rename_columns(addressbase_by_year[2011])
-    addressbase_by_year = align_columns(addressbase_by_year)
-    return addressbase_by_year
+    input_path = (
+        ADDRESSBASE_DIRECTORY_INTERIM
+        / f"greater_london_{year}_abplus_harmonised.parquet"
+    )
+    print(f"Loading {year} AddressBase Plus (clipped and harmonised)")
+    addressbase = load_harmonised_addressbase(input_path)
+    n_dupes = addressbase["uprn"].duplicated().sum()
+    assert n_dupes == 0, f"{n_dupes:,} duplicate UPRNs in {year}"
+    return addressbase
 
 
 def step_add_is_residential(addressbase_by_year):
     """Add an is_residential_space column to each year's AddressBase."""
-    result = {}
-    for year, df in addressbase_by_year.items():
-        result[year] = add_is_residential(df)
-    return result
+    addressbase_by_year_flagged = {}
+    for year, addressbase in addressbase_by_year.items():
+        addressbase_by_year_flagged[year] = add_is_residential(addressbase)
+    return addressbase_by_year_flagged
 
 
 def step_clip_test_area(addressbase_by_year):
@@ -128,15 +138,15 @@ def step_clip_test_area(addressbase_by_year):
     # Chippendale Street
     x_min, x_max = 535642, 535701
     y_min, y_max = 186022, 186074
-    test_area = {}
-    for year, df in addressbase_by_year.items():
-        test_area[year] = df[
-            (df["x_coordinate"] >= x_min)
-            & (df["x_coordinate"] <= x_max)
-            & (df["y_coordinate"] >= y_min)
-            & (df["y_coordinate"] <= y_max)
+    test_area_by_year = {}
+    for year, addressbase in addressbase_by_year.items():
+        test_area_by_year[year] = addressbase[
+            (addressbase["x_coordinate"] >= x_min)
+            & (addressbase["x_coordinate"] <= x_max)
+            & (addressbase["y_coordinate"] >= y_min)
+            & (addressbase["y_coordinate"] <= y_max)
         ]
-    return test_area
+    return test_area_by_year
 
 
 def step_write_outputs(spine, addresses, is_test):
@@ -150,16 +160,17 @@ def step_write_outputs(spine, addresses, is_test):
     suffix = "_test" if is_test else ""
 
     spine_path = (
-        ADDRESSBASE_DIRECTORY_INTERIM / f"greater_london_abplus_spine{suffix}.csv"
+        ADDRESSBASE_DIRECTORY_INTERIM / f"greater_london_abplus_spine{suffix}.parquet"
     )
     print(f"Writing spine ({len(spine):,} rows) to {spine_path.name}")
-    spine.to_csv(spine_path, index=False)
+    spine.to_parquet(spine_path, index=False)
 
     addresses_path = (
-        ADDRESSBASE_DIRECTORY_INTERIM / f"greater_london_abplus_addresses{suffix}.csv"
+        ADDRESSBASE_DIRECTORY_INTERIM
+        / f"greater_london_abplus_addresses{suffix}.parquet"
     )
     print(f"Writing addresses ({len(addresses):,} rows) to {addresses_path.name}")
-    addresses.to_csv(addresses_path, index=False)
+    addresses.to_parquet(addresses_path, index=False)
 
 
 def main():
@@ -171,30 +182,44 @@ def main():
     schema_new = load_schema_new(
         ADDRESSBASE_DIRECTORY_RAW / "addressbase-plus-post-e-39-header.csv"
     )
-    schema_by_year = {2011: schema_old, 2021: schema_new, 2026: schema_new}
 
-    # Stage 1: one-off preparation (skipped if outputs already exist)
+    oa_2011_path = OA_DIRECTORY / "oa_2011_bfe_london.parquet"
+    oa_2021_path = OA_DIRECTORY / "oa_2021_bfe_london.parquet"
+
+    lookup_2011 = load_oa_lookup(
+        LOOKUP_DIRECTORY / "oa11_lsoa11_lad11_ew.csv",
+        {"oa11cd": "oa11cd", "lsoa11cd": "lsoa11cd", "lad11cd": "lad11cd"},
+    )
+    lookup_2021 = load_oa_lookup(
+        LOOKUP_DIRECTORY / "oa21_lsoa21_lad21_ew.csv",
+        {"oa21cd": "oa21cd", "lsoa21cd": "lsoa21cd", "lad21cd": "lad21cd"},
+    )
+
+    # Stage 1: build the 2026 CSV from tiles
     step_build_addressbase_2026(schema_new)
 
-    step_clip_addressbase_by_year(schema_by_year)
+    # Stage 2: clip to London OAs, add area codes and harmonise
+    step_clip_and_harmonise_addressbase(2011, schema_old, oa_2011_path, lookup_2011)
+    step_clip_and_harmonise_addressbase(2021, schema_new, oa_2021_path, lookup_2021)
+    step_clip_and_harmonise_addressbase(2026, schema_new, oa_2021_path, lookup_2021)
 
-    # Stage 2: load and harmonise
-    addressbase_by_year = step_load_addressbase_by_year([2011, 2021, 2026])
-    addressbase_by_year = step_harmonise_addressbase(addressbase_by_year)
-
-    
+    # Stage 3: load and add residential indicator
+    addressbase_by_year = {
+        2011: step_load_addressbase(2011),
+        2021: step_load_addressbase(2021),
+        2026: step_load_addressbase(2026),
+    }
     addressbase_by_year = step_add_is_residential(addressbase_by_year)
-    # write a file at this point?
 
     if USE_TEST_AREA:
         addressbase_by_year = step_clip_test_area(addressbase_by_year)
 
-    # Stage 3: spine and canonical addresses
+    # Stage 4: spine and canonical addresses
     spine = build_addressbase_spine(addressbase_by_year)
     spine = filter_addressbase_spine(spine)
     addresses = build_address_list(spine, addressbase_by_year)
 
-    # Stage 4: save
+    # Stage 5: save
     step_write_outputs(spine, addresses, is_test=USE_TEST_AREA)
 
 

@@ -30,4 +30,6 @@ AddressBase
 - build addresses - DONE
 - investigate addresses for issues - DONE
 - test addresses with a bigger area
+- investigate is_residential criteria ('class' logic)
+- investigate state criteria (2, 3, NA)
 - check borough-level totals

@@ -18,17 +18,19 @@ from rent_project.config import (
     ADDRESSBASE_DIRECTORY_INTERIM,
     ADDRESSBASE_DIRECTORY_RAW,
     DATA_DIRECTORY,
+    OA_DIRECTORY,
 )
 from rent_project.load.addressbase import (
     add_is_residential,
     align_columns,
     build_address_list,
     build_addressbase_spine,
-    clip_greater_london,
+    clip_to_output_areas,
     filter_addressbase_spine,
     load_and_concatenate,
-    load_clipped_addressbase,
     load_full_addressbase,
+    load_harmonised_addressbase,
+    load_oa_boundaries,
     load_schema_new,
     load_schema_old,
     rename_columns,
@@ -36,11 +38,10 @@ from rent_project.load.addressbase import (
 )
 
 from rent_project.pipelines.build_dataset import (
-    step_load_addressbase_by_year,
-    step_harmonise_addressbase,
-    step_add_is_residential
+    step_add_is_residential,
 )
 ```
+
 
 Filtering Regions to London
 ```{python}
@@ -114,85 +115,26 @@ oa_2021_london.to_parquet(DATA_DIRECTORY / "processed" / "spatial-boundaries" / 
 ```
 
 
-
-
-National Statistics UPRN Lookup (June 2026) (Epoch 127) meets AddressBase
+Checking if AddressBase always has 'state'
 
 ```{python}
-# NSUL
-cols = ["UPRN", "OA21CD", "LSOA21CD", "MSOA21CD", "WD25CD", "PCON24CD", "LAD25CD", "RGN25CD"]
-nsul_2026 = pd.read_csv(
-    DATA_DIRECTORY / "raw" / "national-statistics-uprn-lookup" / "NSUL_E127_JUN_2026" / "Data" / "NSUL_E127_JUN_2026_LN.csv",
-    usecols=cols,
-    dtype={c: str for c in cols} | {"UPRN": "Int64"},
+# 2011
+ab_2011 = load_harmonised_addressbase(
+    ADDRESSBASE_DIRECTORY_INTERIM / "greater_london_2011_abplus_clipped.parquet"
 )
-nsul_2026["OA21CD"].isna().sum() # 0 NA
+ab_2011.value_counts("state", dropna=False) # there are NAs oops
 
-# AddressBase
-addressbase_by_year = step_load_addressbase_by_year([2011, 2021, 2026])
-addressbase_by_year = step_harmonise_addressbase(addressbase_by_year)
-addressbase_by_year = step_add_is_residential(addressbase_by_year)
-ab_2011 = addressbase_by_year[2011]
-ab_2021 = addressbase_by_year[2021]
-ab_2026 = addressbase_by_year[2026]
-
-# NSUL x AddressBase 2026
-ab_2026_nsul_2026 = pd.merge(
-    ab_2026, nsul_2026, how='left', left_on='uprn', right_on='UPRN'
-)
-
-ab_2026_nsul_2026_unmatched = ab_2026_nsul_2026[ab_2026_nsul_2026["OA21CD"].isna()]
-# 412 NA
-
-ab_2026_nsul_2026_unmatched[ab_2026_nsul_2026_unmatched["OA21CD"].isna()].value_counts("is_residential_space")
-# 100 residential spaces
-
-len(ab_2026_nsul_2026_unmatched[ab_2026_nsul_2026_unmatched["OA21CD"].isna()].value_counts("local_custodian_code"))
-# 19 different authorities
-
-plt.scatter(ab_2026_nsul_2026_unmatched["x_coordinate"], ab_2026_nsul_2026_unmatched["y_coordinate"], s=1)
-plt.gca().set_aspect("equal")
-plt.show()
-# all around the edges = it works!!!
+```
 
 
-# NSUL x AddressBase 2021
-ab_2021_nsul_2026 = pd.merge(
-    ab_2021, nsul_2026, how='left', left_on='uprn', right_on='UPRN'
-)
+Check spine and addresses outputs
 
-ab_2021_nsul_2026_unmatched = ab_2021_nsul_2026[ab_2021_nsul_2026["OA21CD"].isna()]
-# 21408 NA
+```{python}
+s = pd.read_parquet(ADDRESSBASE_DIRECTORY_INTERIM / "greater_london_abplus_spine_test.parquet")
 
-ab_2021_nsul_2026_unmatched[ab_2021_nsul_2026_unmatched["OA21CD"].isna()].value_counts("is_residential_space")
-# 741 residential spaces
+a = pd.read_parquet(ADDRESSBASE_DIRECTORY_INTERIM / "greater_london_abplus_addresses_test.parquet")
 
-len(ab_2021_nsul_2026_unmatched[ab_2021_nsul_2026_unmatched["OA21CD"].isna()].value_counts("local_custodian_code"))
-# 34 different authorities
+s_all = pd.read_parquet(ADDRESSBASE_DIRECTORY_INTERIM / "greater_london_abplus_spine.parquet")
 
-plt.scatter(ab_2021_nsul_2026_unmatched["x_coordinate"], ab_2021_nsul_2026_unmatched["y_coordinate"], s=1)
-plt.gca().set_aspect("equal")
-plt.show()
-# everywhere = need 2021 file!!!
-
-
-# NSUL x AddressBase 2011
-ab_2011_nsul_2026 = pd.merge(
-    ab_2011, nsul_2026, how='left', left_on='uprn', right_on='UPRN'
-)
-
-ab_2011_nsul_2026_unmatched = ab_2011_nsul_2026[ab_2011_nsul_2026["OA21CD"].isna()]
-# 56293 NA
-
-ab_2011_nsul_2026_unmatched[ab_2011_nsul_2026_unmatched["OA21CD"].isna()].value_counts("is_residential_space")
-# 25297 residential spaces
-
-len(ab_2011_nsul_2026_unmatched[ab_2011_nsul_2026_unmatched["OA21CD"].isna()].value_counts("local_custodian_code"))
-# 35 different authorities
-
-plt.scatter(ab_2011_nsul_2026_unmatched["x_coordinate"], ab_2011_nsul_2026_unmatched["y_coordinate"], s=1)
-plt.gca().set_aspect("equal")
-plt.show()
-# everywhere = need 2021 file!!!
-
+s_all_current = s_all[s_all["is_residential_2026"]]
 ```
