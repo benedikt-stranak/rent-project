@@ -13,6 +13,13 @@ import duckdb
 import pandas as pd
 import matplotlib.pyplot as plt
 import geopandas as gpd
+from uk_address_matcher import (
+    AddressMatcher,
+    ExactMatchStage,
+    PeeledAddressStage,
+    UniqueTrigramStage,
+    SplinkStage,
+)
 
 from rent_project.config import (
     ADDRESSBASE_DIRECTORY_INTERIM,
@@ -127,24 +134,92 @@ ab_2011.value_counts("state", dropna=False) # there are NAs oops
 ```
 
 
-Check spine and addresses outputs
+## Figuring out address matching
 
-```{python}
-s = pd.read_parquet(ADDRESSBASE_DIRECTORY_INTERIM / "greater_london_abplus_spine_test.parquet")
-
-a = pd.read_parquet(ADDRESSBASE_DIRECTORY_INTERIM / "greater_london_abplus_addresses_test.parquet")
-
-s_all = pd.read_parquet(ADDRESSBASE_DIRECTORY_INTERIM / "greater_london_abplus_spine.parquet")
-
-s_all_current = s_all[s_all["is_residential_2026"]]
-```
-
-Load Zoopla data
 
 ```{python}
 spine = pd.read_parquet(ADDRESSBASE_DIRECTORY_INTERIM / "greater_london_abplus_spine.parquet")
 
-rent_listings = pd.read_parquet(DATA_DIRECTORY / "raw" / "hasp-whenfresh-zoopla" / "wfz_rent_listings.parquet")
+addresses = pd.read_parquet(ADDRESSBASE_DIRECTORY_INTERIM / "greater_london_abplus_addresses.parquet")
 
 rent_properties = pd.read_parquet(DATA_DIRECTORY / "raw" / "hasp-whenfresh-zoopla" / "wfz_rent_properties.parquet")
+
+# Test area
+spine_test = pd.read_parquet(ADDRESSBASE_DIRECTORY_INTERIM / "greater_london_abplus_spine_test.parquet")
+
+addresses_test = pd.read_parquet(ADDRESSBASE_DIRECTORY_INTERIM / "greater_london_abplus_addresses_test.parquet")
+
+test_postcodes = set(addresses_test["postcode"])
+print(test_postcodes)
+
+rent_properties_test = rent_properties[rent_properties["postcode"].isin(test_postcodes)]
+del spine, spine_test, addresses_test, rent_properties
+```
+
+
+Jobs
+Match all addresses
+Select random sample of 20 probabilistic addresses to calibrate matching
+
+Then figure out the rest of this bit: taking the hasp ideas into spine
+
+Edit previous stages to skip if file exists, otherwise finish by writing file
+Add print progress messages
+Wrap property matching into a function
+
+
+
+
+
+
+Try UK Address Matcher
+
+```{python}
+ADDRESS_COLUMNS = ['address_1', 'address_2', 'address_3', 'address_4', 'address_5', 'address_6']
+
+# address to match
+out = None
+for col in ADDRESS_COLUMNS:
+    s = rent_properties_test[col].astype('string')
+    if out is None:
+        out = s
+    else:
+        out = out.str.cat(s, sep=', ').fillna(out).fillna(s)
+rent_properties_test['address'] = out.fillna('')
+del out, s
+
+# matcher
+con = duckdb.connect()
+
+hasp_addresses = con.from_df(
+    rent_properties_test[["property_id","address","postcode"]]
+    .rename(columns={"property_id": "unique_id", "address": "address_concat"})
+)
+
+addressbase_addresses = con.from_df(
+    addresses[["uprn","address","postcode"]]
+    .rename(columns={"uprn": "unique_id", "address": "address_concat"})
+)
+
+matcher = AddressMatcher(
+    canonical_addresses=addressbase_addresses,
+    addresses_to_match=hasp_addresses,
+    con=con,
+    stages=[
+        ExactMatchStage(),
+        PeeledAddressStage(),
+        UniqueTrigramStage(),
+        SplinkStage(
+            # recommended 10.0
+            final_match_weight_threshold=0, 
+            # recommended 1.0; initial testing: 2.0 (some 1.74 false positives)
+            final_distinguishability_threshold=0, 
+        ),
+    ],
+)
+result = matcher.match()
+rent_properties_test_matched = result.matches().to_df()
+print(result.match_metrics())
+
+
 ```

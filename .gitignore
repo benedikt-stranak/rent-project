@@ -4,6 +4,8 @@ data/
 *.parquet
 *.gpkg
 *.shp
+.tmp/
+*.tmp
 
 # macOS
 .DS_Store

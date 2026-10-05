@@ -1,4 +1,4 @@
-"""Load, harmonise and build address keys from AddressBase Plus."""
+"""Load, harmonise and build spine and address keys from AddressBase Plus."""
 
 from pathlib import Path
 from zipfile import ZipFile
@@ -669,7 +669,9 @@ def build_la_addresses(addressbase):
             postcode_locator AS postcode
         FROM addressbase
     """
-    return duckdb.sql(query).df()
+    result = duckdb.sql(query).df()
+    result['postcode'] = result['postcode'].str.replace(r'\s+', ' ', regex=True)
+    return result
 
 
 def build_rm_addresses(addressbase):
@@ -709,7 +711,9 @@ def build_rm_addresses(addressbase):
             postcode
         FROM addressbase
     """
-    return duckdb.sql(query).df()
+    result = duckdb.sql(query).df()
+    result['postcode'] = result['postcode'].str.replace(r'\s+', ' ', regex=True)
+    return result
 
 
 def build_address_list(spine, addressbase_by_year):

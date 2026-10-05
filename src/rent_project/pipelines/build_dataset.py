@@ -3,14 +3,18 @@
 Run with: uv run build-dataset
 """
 
+import pandas as pd
+
 from rent_project.config import (
     ADDRESSBASE_DIRECTORY_INTERIM,
     ADDRESSBASE_DIRECTORY_RAW,
+    HASP_DIRECTORY,
     LOOKUP_DIRECTORY,
     OA_DIRECTORY,
 )
 from rent_project.sources.addressbase import (
     add_area_codes,
+    # add_hasp_property_id,
     add_is_residential,
     align_columns,
     build_address_list,
@@ -28,7 +32,7 @@ from rent_project.sources.addressbase import (
     unzip_all,
 )
 
-USE_TEST_AREA = True  # set to False for the full Greater London run
+USE_TEST_AREA = False  # set to False for the full Greater London run
 
 
 def step_build_addressbase_2026(schema):
@@ -128,24 +132,32 @@ def step_add_is_residential(addressbase_by_year):
     return addressbase_by_year_flagged
 
 
-def step_clip_test_area(addressbase_by_year):
-    """Keep only rows in a specified bounding box.
+def step_clip_test_area(addressbase_by_year, method="oa"):
+    """Keep only rows in a test area, for quick test runs.
 
-    For quick test runs. The box is in British National Grid coordinates.
+    method="bbox" filters on a British National Grid bounding box.
+    method="oa" filters on the 2021 output area code.
     Returns a new dict of year -> DataFrame.
     """
 
     # Chippendale Street
     x_min, x_max = 535642, 535701
     y_min, y_max = 186022, 186074
+    oa_cd = "E00008915"
+
     test_area_by_year = {}
     for year, addressbase in addressbase_by_year.items():
-        test_area_by_year[year] = addressbase[
-            (addressbase["x_coordinate"] >= x_min)
-            & (addressbase["x_coordinate"] <= x_max)
-            & (addressbase["y_coordinate"] >= y_min)
-            & (addressbase["y_coordinate"] <= y_max)
-        ]
+        if method == "bbox":
+            test_area_by_year[year] = addressbase[
+                (addressbase["x_coordinate"] >= x_min)
+                & (addressbase["x_coordinate"] <= x_max)
+                & (addressbase["y_coordinate"] >= y_min)
+                & (addressbase["y_coordinate"] <= y_max)
+            ]
+        else:
+            oa_col = "oa11cd" if year == 2011 else "oa21cd"
+            test_area_by_year[year] = addressbase[addressbase[oa_col] == oa_cd]
+
     return test_area_by_year
 
 
@@ -171,6 +183,24 @@ def step_write_outputs(spine, addresses, is_test):
     )
     print(f"Writing addresses ({len(addresses):,} rows) to {addresses_path.name}")
     addresses.to_parquet(addresses_path, index=False)
+
+def step_load_spine_and_addresses():
+    """Load parquet file with AddressBase spine and address keys."""
+
+    file_path_spine = ADDRESSBASE_DIRECTORY_INTERIM / "greater_london_abplus_spine.parquet"
+    file_path_addresses = ADDRESSBASE_DIRECTORY_INTERIM / "greater_london_abplus_addresses.parquet"
+    return pd.read_parquet(file_path_spine), pd.read_parquet(file_path_addresses)
+
+def step_load_rent_properties():
+    """Load rent_properties parquet file."""
+
+    file_path = HASP_DIRECTORY / "wfz_rent_properties.parquet"
+    return pd.read_parquet(file_path)
+
+# def step_add_hasp_property_id(spine, addresses, rent_properties):
+#    """."""
+#    spine=add_hasp_property_id(spine, addresses, rent_properties)
+#    return spine
 
 
 def main():
@@ -219,10 +249,18 @@ def main():
     spine = filter_addressbase_spine(spine)
     addresses = build_address_list(spine, addressbase_by_year)
     step_write_outputs(spine, addresses, is_test=USE_TEST_AREA)
+    # change Stage 3 and 4 to save the outputs (and be skipped if already exist)
 
-    # Stage 5: match spine to zoopla property id
+    # Stage 5: match zoopla property id to spine
+    # spine, addresses = step_load_spine_and_addresses()
+    # rent_properties = step_load_rent_properties()
+    # spine = step_add_hasp_property_id(spine, addresses, rent_properties)
 
     # Stage 6: identify privately rented properties
+
+    # Stage 7: merge in rents and adjust rents to target years
+
+    # Stage 8: estimate missing rents
 
 
 if __name__ == "__main__":
