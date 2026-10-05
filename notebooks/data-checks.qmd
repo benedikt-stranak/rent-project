@@ -1,0 +1,140 @@
+---
+title: "Data Quality Checks"
+subtitle: "Validation of [dataset name] against external sources"
+author:
+  - name: Your Name
+date: last-modified
+date-format: "D MMMM YYYY"
+abstract: |
+  This document compares [dataset name] against external benchmarks to assess its coverage and accuracy and to identify potential issues.
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    number-sections: true
+    code-fold: true
+    code-tools: true
+    embed-resources: true
+    df-print: paged
+execute:
+  echo: true
+  warning: false
+  message: false
+---
+
+```{python}
+from pathlib import Path
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+from rent_project.config import (
+    DATA_DIRECTORY,
+    ADDRESSBASE_DIRECTORY_INTERIM,
+    LONDON_BOROUGHS,
+)
+
+```
+
+Comparisons
+
+Local authority level
+
+Council Tax 2011, 2021, 2026: CTSOP1.1 number of properties by Council Tax band, local authority and lower and middle super output area at 31 March 2026
+
+MHCLG Dwelling stock estimates (Live Table 125)
+
+Census: KS401EW Dwellings, household spaces and accommodation type, local authorities in England and Wales
+
+Detailed
+Census 2011: QS417EW Household spaces; QS418EW Dwellings; (QS101EW Residence type?)
+Census 2021: RM204 Number of Dwellings
+
+```{python}
+# My AddressBase spine
+spine = pd.read_parquet(
+    ADDRESSBASE_DIRECTORY_INTERIM / "greater_london_abplus_spine.parquet"
+)
+
+# Council Tax Stock of Properties 
+ctsop_2011 = pd.read_csv(
+    DATA_DIRECTORY / "raw" / "area-housing-data" / "dwelling-numbers" / "ctsop-properties-2011-lsoa-ctsop_1_1.csv",
+    usecols=["geography", "ecode", "area_name", "all_properties"])
+ctsop_2011 = (
+    ctsop_2011[ctsop_2011["geography"] == "LAUA"][["ecode", "all_properties"]]
+    .rename(columns={"ecode": "lad_cd", "all_properties": "ctsop"})
+)
+
+ctsop_2021 = pd.read_csv(
+    DATA_DIRECTORY / "raw" / "area-housing-data" / "dwelling-numbers" / "ctsop-properties-2021-lsoa-ctsop_1_1.csv",
+    usecols=["geography", "ecode", "area_name", "all_properties"])
+ctsop_2021 = (
+    ctsop_2021[ctsop_2021["geography"] == "LAUA"][["ecode", "all_properties"]]
+    .rename(columns={"ecode": "lad_cd", "all_properties": "ctsop"})
+)
+
+ctsop_2026 = pd.read_csv(
+    DATA_DIRECTORY / "raw" / "area-housing-data" / "dwelling-numbers" / "ctsop-properties-2026-lsoa-ctsop_1_1.csv",
+    usecols=["geography", "ecode", "area_name", "all_properties"])
+ctsop_2026 = (
+    ctsop_2026[ctsop_2026["geography"] == "LAUA"][["ecode", "all_properties"]]
+    .rename(columns={"ecode": "lad_cd", "all_properties": "ctsop"})
+)
+
+```
+
+```{python}
+dwellings_2011 = (
+    spine[spine["is_residential_2011"]]
+    .groupby("lad11cd")
+    .size().rename("spine")
+    .rename_axis("lad_cd").reset_index()
+    .merge(ctsop_2011, on = "lad_cd")
+    .assign(year=2011)
+)
+dwellings_2021 = (
+    spine[spine["is_residential_2021"]]
+    .groupby("lad21cd")
+    .size().rename("spine")
+    .rename_axis("lad_cd").reset_index()
+    .merge(ctsop_2021, on = "lad_cd")
+    .assign(year=2021)
+)
+dwellings_2026 = (
+    spine[spine["is_residential_2026"]]
+    .groupby("lad21cd")
+    .size().rename("spine")
+    .rename_axis("lad_cd").reset_index()
+    .merge(ctsop_2026, on = "lad_cd")
+    .assign(year=2026)
+)
+
+dwellings = pd.concat(
+    [dwellings_2011, dwellings_2021, dwellings_2026],
+    ignore_index=True
+)
+dwellings_long = dwellings.melt(
+    id_vars=["lad_cd", "year"],
+    value_vars=["spine", "ctsop"],
+    var_name="source",
+    value_name="dwellings",
+)
+dwellings_long["borough"] = dwellings_long["lad_cd"].map(LONDON_BOROUGHS)
+```
+
+
+```{python}
+g = sns.relplot(
+    data=dwellings_long,
+    x="year", y="dwellings",
+    hue="source", style="source", markers=True, dashes=False,
+    col="borough", col_wrap=6,
+    kind="line",
+    height=2.2, aspect=1.2,
+    facet_kws={"sharey": True},
+)
+g.set(xticks=[2011, 2021, 2026])
+g.set_titles("{col_name}", size=9)
+g.set_axis_labels("", "Dwellings")
+plt.show()
+```
