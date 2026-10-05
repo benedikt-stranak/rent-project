@@ -20,7 +20,7 @@ from rent_project.config import (
     DATA_DIRECTORY,
     OA_DIRECTORY,
 )
-from rent_project.load.addressbase import (
+from rent_project.sources.addressbase import (
     add_is_residential,
     align_columns,
     build_address_list,
@@ -137,4 +137,14 @@ a = pd.read_parquet(ADDRESSBASE_DIRECTORY_INTERIM / "greater_london_abplus_addre
 s_all = pd.read_parquet(ADDRESSBASE_DIRECTORY_INTERIM / "greater_london_abplus_spine.parquet")
 
 s_all_current = s_all[s_all["is_residential_2026"]]
+```
+
+Load Zoopla data
+
+```{python}
+spine = pd.read_parquet(ADDRESSBASE_DIRECTORY_INTERIM / "greater_london_abplus_spine.parquet")
+
+rent_listings = pd.read_parquet(DATA_DIRECTORY / "raw" / "hasp-whenfresh-zoopla" / "wfz_rent_listings.parquet")
+
+rent_properties = pd.read_parquet(DATA_DIRECTORY / "raw" / "hasp-whenfresh-zoopla" / "wfz_rent_properties.parquet")
 ```

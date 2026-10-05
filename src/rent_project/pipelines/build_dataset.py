@@ -9,7 +9,7 @@ from rent_project.config import (
     LOOKUP_DIRECTORY,
     OA_DIRECTORY,
 )
-from rent_project.load.addressbase import (
+from rent_project.sources.addressbase import (
     add_area_codes,
     add_is_residential,
     align_columns,
@@ -218,9 +218,11 @@ def main():
     spine = build_addressbase_spine(addressbase_by_year)
     spine = filter_addressbase_spine(spine)
     addresses = build_address_list(spine, addressbase_by_year)
-
-    # Stage 5: save
     step_write_outputs(spine, addresses, is_test=USE_TEST_AREA)
+
+    # Stage 5: match spine to zoopla property id
+
+    # Stage 6: identify privately rented properties
 
 
 if __name__ == "__main__":
