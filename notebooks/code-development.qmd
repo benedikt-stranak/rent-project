@@ -164,7 +164,7 @@ DONE Taking the hasp ideas into spine
 
 Edit previous stages to skip if file exists, finish by writing file
 Add print progress messages
-Wrap property matching into a function
+DONE Wrap property matching into a function
 
 
 

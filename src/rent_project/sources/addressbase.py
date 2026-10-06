@@ -670,7 +670,7 @@ def build_la_addresses(addressbase):
         FROM addressbase
     """
     result = duckdb.sql(query).df()
-    result['postcode'] = result['postcode'].str.replace(r'\s+', ' ', regex=True)
+    result["postcode"] = result["postcode"].str.replace(r"\s+", " ", regex=True)
     return result
 
 
@@ -712,7 +712,7 @@ def build_rm_addresses(addressbase):
         FROM addressbase
     """
     result = duckdb.sql(query).df()
-    result['postcode'] = result['postcode'].str.replace(r'\s+', ' ', regex=True)
+    result["postcode"] = result["postcode"].str.replace(r"\s+", " ", regex=True)
     return result
 
 

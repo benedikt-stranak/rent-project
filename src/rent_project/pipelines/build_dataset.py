@@ -184,18 +184,25 @@ def step_write_outputs(spine, addresses, is_test):
     print(f"Writing addresses ({len(addresses):,} rows) to {addresses_path.name}")
     addresses.to_parquet(addresses_path, index=False)
 
+
 def step_load_spine_and_addresses():
     """Load parquet file with AddressBase spine and address keys."""
 
-    file_path_spine = ADDRESSBASE_DIRECTORY_INTERIM / "greater_london_abplus_spine.parquet"
-    file_path_addresses = ADDRESSBASE_DIRECTORY_INTERIM / "greater_london_abplus_addresses.parquet"
+    file_path_spine = (
+        ADDRESSBASE_DIRECTORY_INTERIM / "greater_london_abplus_spine.parquet"
+    )
+    file_path_addresses = (
+        ADDRESSBASE_DIRECTORY_INTERIM / "greater_london_abplus_addresses.parquet"
+    )
     return pd.read_parquet(file_path_spine), pd.read_parquet(file_path_addresses)
+
 
 def step_load_rent_properties():
     """Load rent_properties parquet file."""
 
     file_path = HASP_DIRECTORY / "wfz_rent_properties.parquet"
     return pd.read_parquet(file_path)
+
 
 # def step_add_hasp_property_id(spine, addresses, rent_properties):
 #    """."""
@@ -256,7 +263,14 @@ def main():
     # rent_properties = step_load_rent_properties()
     # spine = step_add_hasp_property_id(spine, addresses, rent_properties)
 
+    # Stage 5 1/2 (skip for now)
+    # match which years have rental listings
+    # match EPC data
+
     # Stage 6: identify privately rented properties
+    # calculate output area targets
+    # for now, randomly draw from those with hasp_id
+    # if/when exhausted those with hasp_id, randomly draw from the rest
 
     # Stage 7: merge in rents and adjust rents to target years
 
