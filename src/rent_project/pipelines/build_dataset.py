@@ -267,6 +267,7 @@ def main():
     spine, addresses = step_load_spine_and_addresses()
     rent_properties = step_load_rent_properties()
     spine = add_hasp_property_id(spine, addresses, rent_properties)
+    # 80267 unmatched, output: 4151457x16
 
     # Stage 4 1/2 (skip for now)
     # match which years have rental listings
