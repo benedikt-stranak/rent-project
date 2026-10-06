@@ -233,6 +233,7 @@ spine_hasp = spine.merge(
 # 4151457 to 4159941, due to uprn duplicates in hasp
 # stays 4151457 after dropping uprn duplicates in hasp
 
+# These checks should defo be included in some output, maybe by borough:
 len(spine_hasp[~spine_hasp["hasp_property_id"].isna()])
 # 650146 as expected
 len(spine_hasp[~spine_hasp["hasp_property_id"].isna()]) / len(spine_hasp)

@@ -14,7 +14,6 @@ from rent_project.config import (
 )
 from rent_project.sources.addressbase import (
     add_area_codes,
-    # add_hasp_property_id,
     add_is_residential,
     align_columns,
     build_address_list,
@@ -31,8 +30,64 @@ from rent_project.sources.addressbase import (
     rename_columns,
     unzip_all,
 )
+from rent_project.sources.hasp import (
+    add_hasp_property_id,
+)
 
 USE_TEST_AREA = False  # set to False for the full Greater London run
+
+
+# Helpers: used inside steps, not called from main()
+
+
+def _load_addressbase(year):
+    """Load one year's clipped and harmonised parquet.
+
+    Raises if any UPRN appears more than once, since the spine assumes
+    one row per UPRN per year.
+    """
+
+    input_path = (
+        ADDRESSBASE_DIRECTORY_INTERIM
+        / f"greater_london_{year}_abplus_harmonised.parquet"
+    )
+    print(f"Loading {year} AddressBase Plus (clipped and harmonised)")
+    addressbase = load_harmonised_addressbase(input_path)
+    n_dupes = addressbase["uprn"].duplicated().sum()
+    assert n_dupes == 0, f"{n_dupes:,} duplicate UPRNs in {year}"
+    return addressbase
+
+
+def _clip_test_area(addressbase_by_year, method="oa"):
+    """Keep only rows in a test area, for quick test runs.
+
+    method="bbox" filters on a British National Grid bounding box.
+    method="oa" filters on the 2021 output area code.
+    Returns a new dict of year -> DataFrame.
+    """
+
+    # Chippendale Street
+    x_min, x_max = 535642, 535701
+    y_min, y_max = 186022, 186074
+    oa_cd = "E00008915"
+
+    test_area_by_year = {}
+    for year, addressbase in addressbase_by_year.items():
+        if method == "bbox":
+            test_area_by_year[year] = addressbase[
+                (addressbase["x_coordinate"] >= x_min)
+                & (addressbase["x_coordinate"] <= x_max)
+                & (addressbase["y_coordinate"] >= y_min)
+                & (addressbase["y_coordinate"] <= y_max)
+            ]
+        else:
+            oa_col = "oa11cd" if year == 2011 else "oa21cd"
+            test_area_by_year[year] = addressbase[addressbase[oa_col] == oa_cd]
+
+    return test_area_by_year
+
+
+# Steps: called from main(), in order
 
 
 def step_build_addressbase_2026(schema):
@@ -69,7 +124,8 @@ def step_clip_and_harmonise_addressbase(year, schema, oa_path, lookup):
 
     Loads the raw CSV, keeps points inside the OA boundaries (adding oa11cd
     or oa21cd), adds LSOA and LAD codes from the OA lookup, renames 2011
-    columns to their newer names, aligns to COLUMNS_TO_KEEP, and writes
+    columns to their newer names, aligns to COLUMNS_TO_KEEP, adds the
+    is_residential_space column, and writes
     interim/address-base-plus/greater_london_<year>_abplus_harmonised.parquet.
     Skipped if that file already exists.
     """
@@ -102,85 +158,55 @@ def step_clip_and_harmonise_addressbase(year, schema, oa_path, lookup):
         addressbase = rename_columns(addressbase)
     addressbase = align_columns(addressbase)
 
+    print(f"Adding residential indicator to {year} AddressBase Plus")
+    addressbase = add_is_residential(addressbase)
+
     print(f"Writing {year} AddressBase Plus to {output_path.name}")
     addressbase.to_parquet(output_path, index=False)
 
 
-def step_load_addressbase(year):
-    """Load one year's clipped and harmonised parquet.
+def step_build_spine_and_addresses(is_test):
+    """Build the spine and canonical address list, and save as parquet.
 
-    Raises if any UPRN appears more than once, since the spine assumes
-    one row per UPRN per year.
-    """
-
-    input_path = (
-        ADDRESSBASE_DIRECTORY_INTERIM
-        / f"greater_london_{year}_abplus_harmonised.parquet"
-    )
-    print(f"Loading {year} AddressBase Plus (clipped and harmonised)")
-    addressbase = load_harmonised_addressbase(input_path)
-    n_dupes = addressbase["uprn"].duplicated().sum()
-    assert n_dupes == 0, f"{n_dupes:,} duplicate UPRNs in {year}"
-    return addressbase
-
-
-def step_add_is_residential(addressbase_by_year):
-    """Add an is_residential_space column to each year's AddressBase."""
-    addressbase_by_year_flagged = {}
-    for year, addressbase in addressbase_by_year.items():
-        addressbase_by_year_flagged[year] = add_is_residential(addressbase)
-    return addressbase_by_year_flagged
-
-
-def step_clip_test_area(addressbase_by_year, method="oa"):
-    """Keep only rows in a test area, for quick test runs.
-
-    method="bbox" filters on a British National Grid bounding box.
-    method="oa" filters on the 2021 output area code.
-    Returns a new dict of year -> DataFrame.
-    """
-
-    # Chippendale Street
-    x_min, x_max = 535642, 535701
-    y_min, y_max = 186022, 186074
-    oa_cd = "E00008915"
-
-    test_area_by_year = {}
-    for year, addressbase in addressbase_by_year.items():
-        if method == "bbox":
-            test_area_by_year[year] = addressbase[
-                (addressbase["x_coordinate"] >= x_min)
-                & (addressbase["x_coordinate"] <= x_max)
-                & (addressbase["y_coordinate"] >= y_min)
-                & (addressbase["y_coordinate"] <= y_max)
-            ]
-        else:
-            oa_col = "oa11cd" if year == 2011 else "oa21cd"
-            test_area_by_year[year] = addressbase[addressbase[oa_col] == oa_cd]
-
-    return test_area_by_year
-
-
-def step_write_outputs(spine, addresses, is_test):
-    """Write the spine and address list to interim/address-base-plus/.
-
+    Loads each year's clipped and harmonised parquet, keeps only the test
+    area if is_test, builds and filters the spine, builds the address list,
+    and writes both to interim/address-base-plus/.
     Test runs get a "_test" suffix so they never overwrite a full run.
-    Existing files are overwritten.
+    Skipped if both files already exist.
     """
 
-    ADDRESSBASE_DIRECTORY_INTERIM.mkdir(parents=True, exist_ok=True)
     suffix = "_test" if is_test else ""
-
     spine_path = (
         ADDRESSBASE_DIRECTORY_INTERIM / f"greater_london_abplus_spine{suffix}.parquet"
     )
-    print(f"Writing spine ({len(spine):,} rows) to {spine_path.name}")
-    spine.to_parquet(spine_path, index=False)
-
     addresses_path = (
         ADDRESSBASE_DIRECTORY_INTERIM
         / f"greater_london_abplus_addresses{suffix}.parquet"
     )
+    if spine_path.exists() and addresses_path.exists():
+        print(f"Skipped building spine and addresses{suffix} (already exist)")
+        return
+
+    addressbase_by_year = {
+        2011: _load_addressbase(2011),
+        2021: _load_addressbase(2021),
+        2026: _load_addressbase(2026),
+    }
+
+    if is_test:
+        print("Clipping to test area")
+        addressbase_by_year = _clip_test_area(addressbase_by_year)
+
+    print("Building spine")
+    spine = build_addressbase_spine(addressbase_by_year)
+    spine = filter_addressbase_spine(spine)
+
+    print("Building address list")
+    addresses = build_address_list(spine, addressbase_by_year)
+
+    print(f"Writing spine ({len(spine):,} rows) to {spine_path.name}")
+    spine.to_parquet(spine_path, index=False)
+
     print(f"Writing addresses ({len(addresses):,} rows) to {addresses_path.name}")
     addresses.to_parquet(addresses_path, index=False)
 
@@ -202,12 +228,6 @@ def step_load_rent_properties():
 
     file_path = HASP_DIRECTORY / "wfz_rent_properties.parquet"
     return pd.read_parquet(file_path)
-
-
-# def step_add_hasp_property_id(spine, addresses, rent_properties):
-#    """."""
-#    spine=add_hasp_property_id(spine, addresses, rent_properties)
-#    return spine
 
 
 def main():
@@ -235,46 +255,31 @@ def main():
     # Stage 1: build the 2026 CSV from tiles
     step_build_addressbase_2026(schema_new)
 
-    # Stage 2: clip to London OAs, add area codes and harmonise
+    # Stage 2: clip to London OAs, add area codes, harmonise and add residential indicator
     step_clip_and_harmonise_addressbase(2011, schema_old, oa_2011_path, lookup_2011)
     step_clip_and_harmonise_addressbase(2021, schema_new, oa_2021_path, lookup_2021)
     step_clip_and_harmonise_addressbase(2026, schema_new, oa_2021_path, lookup_2021)
 
-    # Stage 3: load and add residential indicator
-    addressbase_by_year = {
-        2011: step_load_addressbase(2011),
-        2021: step_load_addressbase(2021),
-        2026: step_load_addressbase(2026),
-    }
-    addressbase_by_year = step_add_is_residential(addressbase_by_year)
+    # Stage 3: build spine and canonical addresses
+    step_build_spine_and_addresses(is_test=USE_TEST_AREA)
 
-    if USE_TEST_AREA:
-        addressbase_by_year = step_clip_test_area(addressbase_by_year)
+    # Stage 4: match zoopla property id to spine
+    spine, addresses = step_load_spine_and_addresses()
+    rent_properties = step_load_rent_properties()
+    spine = add_hasp_property_id(spine, addresses, rent_properties)
 
-    # Stage 4: spine and canonical addresses
-    spine = build_addressbase_spine(addressbase_by_year)
-    spine = filter_addressbase_spine(spine)
-    addresses = build_address_list(spine, addressbase_by_year)
-    step_write_outputs(spine, addresses, is_test=USE_TEST_AREA)
-    # change Stage 3 and 4 to save the outputs (and be skipped if already exist)
-
-    # Stage 5: match zoopla property id to spine
-    # spine, addresses = step_load_spine_and_addresses()
-    # rent_properties = step_load_rent_properties()
-    # spine = step_add_hasp_property_id(spine, addresses, rent_properties)
-
-    # Stage 5 1/2 (skip for now)
+    # Stage 4 1/2 (skip for now)
     # match which years have rental listings
     # match EPC data
 
-    # Stage 6: identify privately rented properties
+    # Stage 5: identify privately rented properties
     # calculate output area targets
     # for now, randomly draw from those with hasp_id
     # if/when exhausted those with hasp_id, randomly draw from the rest
 
-    # Stage 7: merge in rents and adjust rents to target years
+    # Stage 6: merge in rents and adjust rents to target years
 
-    # Stage 8: estimate missing rents
+    # Stage 7: estimate missing rents
 
 
 if __name__ == "__main__":
