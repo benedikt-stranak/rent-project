@@ -33,3 +33,7 @@ AddressBase
 - investigate is_residential criteria ('class' logic)
 - investigate state criteria (2, 3, NA)
 - check borough-level totals - DONE
+
+HASP
+- make probabilistic match safe (for now excluded)
+- include hasp_property_id that point to the same UPRN (for now excluded as suspicious)

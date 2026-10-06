@@ -134,7 +134,7 @@ ab_2011.value_counts("state", dropna=False) # there are NAs oops
 ```
 
 
-## Figuring out address matching
+Figuring out address matching
 
 
 ```{python}
@@ -158,17 +158,13 @@ del spine, spine_test, addresses_test, rent_properties
 
 
 Jobs
-Match all addresses
-Select random sample of 20 probabilistic addresses to calibrate matching
+DONE Match all addresses
+DONE Select calibrate probabilistic matching
+DONE Taking the hasp ideas into spine
 
-Then figure out the rest of this bit: taking the hasp ideas into spine
-
-Edit previous stages to skip if file exists, otherwise finish by writing file
+Edit previous stages to skip if file exists, finish by writing file
 Add print progress messages
 Wrap property matching into a function
-
-
-
 
 
 
@@ -177,22 +173,29 @@ Try UK Address Matcher
 ```{python}
 ADDRESS_COLUMNS = ['address_1', 'address_2', 'address_3', 'address_4', 'address_5', 'address_6']
 
-# address to match
+spine = pd.read_parquet(ADDRESSBASE_DIRECTORY_INTERIM / "greater_london_abplus_spine.parquet")
+
+addresses = pd.read_parquet(ADDRESSBASE_DIRECTORY_INTERIM / "greater_london_abplus_addresses.parquet")
+
+rent_properties = pd.read_parquet(DATA_DIRECTORY / "raw" / "hasp-whenfresh-zoopla" / "wfz_rent_properties.parquet")
+
+
+# preparing address to match
 out = None
 for col in ADDRESS_COLUMNS:
-    s = rent_properties_test[col].astype('string')
+    s = rent_properties[col].astype('string')
     if out is None:
         out = s
     else:
         out = out.str.cat(s, sep=', ').fillna(out).fillna(s)
-rent_properties_test['address'] = out.fillna('')
+rent_properties['address'] = out.fillna('')
 del out, s
 
 # matcher
 con = duckdb.connect()
 
 hasp_addresses = con.from_df(
-    rent_properties_test[["property_id","address","postcode"]]
+    rent_properties[["property_id","address","postcode"]]
     .rename(columns={"property_id": "unique_id", "address": "address_concat"})
 )
 
@@ -209,17 +212,92 @@ matcher = AddressMatcher(
         ExactMatchStage(),
         PeeledAddressStage(),
         UniqueTrigramStage(),
-        SplinkStage(
-            # recommended 10.0
-            final_match_weight_threshold=0, 
-            # recommended 1.0; initial testing: 2.0 (some 1.74 false positives)
-            final_distinguishability_threshold=0, 
-        ),
+        # SplinkStage(
+        #    # recommended 10.0
+        #    final_match_weight_threshold=10, 
+        #    # recommended 1.0; initial testing: >2.0
+        #    final_distinguishability_threshold=2.1, 
+        #),
     ],
 )
 result = matcher.match()
-rent_properties_test_matched = result.matches().to_df()
+rent_properties_matched = (
+    result.matches().to_df()
+    .rename(columns={
+        "resolved_canonical_id": "uprn",
+        "unique_id": "hasp_property_id"
+    })
+)
+
+# PRECAUTIONS
+# drop all unmatched
+rent_properties_matched = rent_properties_matched.dropna(subset=["uprn"])
+# drop repeated uprns (all instances)
+rent_properties_matched = rent_properties_matched[
+    ~rent_properties_matched.duplicated("uprn", keep=False)
+]
+# 655136 - 2489 - 2501 = 650146
+
+
+# LAST STEP
+
+# Merging the hasp property id to addresses spine
+spine_hasp = spine.merge(
+    rent_properties_matched[["hasp_property_id","uprn"]],
+    how='left', on="uprn")
+# make sure to add a check that spine has not gotten longer
+# 4151457 to 4159941, due to uprn duplicates in hasp
+# stays 4151457 after dropping uprn duplicates in hasp
+
+len(spine_hasp[~spine_hasp["hasp_property_id"].isna()])
+# 650146 as expected
+len(spine_hasp[~spine_hasp["hasp_property_id"].isna()]) / len(spine_hasp)
+# 16% properties has hasp_property_id
+```
+
+INVESTIGATIONS
+
+```{python}
+
+# investigate matches
 print(result.match_metrics())
+# probabilistic: 49901 unmatched,  685502 matched
+# without probabilistic: 80267 unmatched, 655136 matched
+
+# length
+len(rent_properties_matched["hasp_property_id"]) # 735403
+
+# no hasp id duplicates
+print(rent_properties_matched["hasp_property_id"].nunique()) # 735403
+sum(rent_properties_matched["hasp_property_id"].duplicated()) # 0
+
+# number of unmatched
+sum(rent_properties_matched["uprn"].isna())
+# 49901 (probabilistic) / 80267 (no probabilistic)
+
+# repeated uprns
+sum(rent_properties_matched["uprn"].dropna().duplicated()) # 8075 / 2501
+dupes = rent_properties_matched.dropna(subset=["uprn"])
+dupes = dupes[dupes.duplicated("uprn", keep=False)].sort_values("uprn")
+print(dupes["uprn"].nunique()) # 7574 repeated uprns / 2489
+sum(dupes["uprn"].duplicated()) # 8075 of the extras / 2501
+
+sampled_uprns = (
+    dupes["uprn"].drop_duplicates().sample(n=10, random_state=1)
+)
+dupes_sample = (
+    dupes[dupes["uprn"].isin(sampled_uprns)].sort_values("uprn")
+)
+dupes_sample.to_csv(ADDRESSBASE_DIRECTORY_INTERIM / "matched_uprn_duplicates_sample_inspection.csv", index=False)
+
+# probabilistic matching
+matched_probabilistic_sample = (
+    rent_properties_matched[
+        rent_properties_matched["match_reason"] == "splink: probabilistic match"
+        ]
+    .sample(n=20, random_state=1)
+)
+matched_probabilistic_sample.to_csv(ADDRESSBASE_DIRECTORY_INTERIM / "matched_hasp_to_ab_probabilistic_sample_inspection.csv")
 
 
 ```
