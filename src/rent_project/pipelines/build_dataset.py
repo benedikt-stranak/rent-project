@@ -47,6 +47,16 @@ USE_TEST_AREA = False  # set to False for the full Greater London run
 # Helpers: used inside steps, not called from main()
 
 
+def _interim_path(stem, is_test):
+    """Path to an interim parquet file.
+
+    Test runs get a "_test" suffix so they never overwrite a full run.
+    """
+
+    suffix = "_test" if is_test else ""
+    return ADDRESSBASE_DIRECTORY_INTERIM / f"{stem}{suffix}.parquet"
+
+
 def _load_addressbase(year):
     """Load one year's clipped and harmonised parquet.
 
@@ -92,6 +102,27 @@ def _clip_test_area(addressbase_by_year, method="oa"):
             test_area_by_year[year] = addressbase[addressbase[oa_col] == oa_cd]
 
     return test_area_by_year
+
+
+def _load_spine_and_addresses(is_test):
+    """Load parquet files with AddressBase spine and address keys."""
+
+    file_path_spine = _interim_path("greater_london_abplus_spine", is_test)
+    file_path_addresses = _interim_path("greater_london_abplus_addresses", is_test)
+    return pd.read_parquet(file_path_spine), pd.read_parquet(file_path_addresses)
+
+
+def _load_rent_properties():
+    """Load rent_properties parquet file."""
+
+    file_path = HASP_DIRECTORY / "wfz_rent_properties.parquet"
+    return pd.read_parquet(file_path)
+
+
+def _load_spine_hasp(is_test):
+    """Load parquet file with the spine including HASP property id."""
+
+    return pd.read_parquet(_interim_path("greater_london_abplus_spine_hasp", is_test))
 
 
 # Steps: called from main(), in order
@@ -182,16 +213,10 @@ def step_build_spine_and_addresses(is_test):
     Skipped if both files already exist.
     """
 
-    suffix = "_test" if is_test else ""
-    spine_path = (
-        ADDRESSBASE_DIRECTORY_INTERIM / f"greater_london_abplus_spine{suffix}.parquet"
-    )
-    addresses_path = (
-        ADDRESSBASE_DIRECTORY_INTERIM
-        / f"greater_london_abplus_addresses{suffix}.parquet"
-    )
+    spine_path = _interim_path("greater_london_abplus_spine", is_test)
+    addresses_path = _interim_path("greater_london_abplus_addresses", is_test)
     if spine_path.exists() and addresses_path.exists():
-        print(f"Skipped building spine and addresses{suffix} (already exist)")
+        print(f"Skipped building spine and addresses ({spine_path.stem} exists)")
         return
 
     addressbase_by_year = {
@@ -218,23 +243,68 @@ def step_build_spine_and_addresses(is_test):
     addresses.to_parquet(addresses_path, index=False)
 
 
-def step_load_spine_and_addresses():
-    """Load parquet file with AddressBase spine and address keys."""
+def step_match_hasp_property_id(is_test):
+    """Match the zoopla property id to the spine, and save as parquet.
 
-    file_path_spine = (
-        ADDRESSBASE_DIRECTORY_INTERIM / "greater_london_abplus_spine.parquet"
+    Loads the spine, canonical addresses and rent properties, adds the HASP
+    property id to the spine, and writes
+    interim/address-base-plus/greater_london_abplus_spine_hasp.parquet.
+    Test runs get a "_test" suffix so they never overwrite a full run.
+    Skipped if that file already exists.
+    """
+
+    output_path = _interim_path("greater_london_abplus_spine_hasp", is_test)
+    if output_path.exists():
+        print(f"Skipped matching HASP property id ({output_path.name} exists)")
+        return
+
+    print("Loading spine, addresses and rent properties")
+    spine, addresses = _load_spine_and_addresses(is_test)
+    rent_properties = _load_rent_properties()
+
+    print("Matching HASP property id to spine")
+    spine = add_hasp_property_id(spine, addresses, rent_properties)
+    # Full run: 80267 unmatched, output: 4151457x16
+
+    print(f"Writing spine ({len(spine):,} rows) to {output_path.name}")
+    spine.to_parquet(output_path, index=False)
+
+
+def step_add_private_rented(is_test):
+    """Identify privately rented properties, and save as parquet.
+
+    Loads the spine with HASP property id, builds the 2011 and 2021 census
+    tenure targets, adds the private-rented indicator, and writes
+    interim/address-base-plus/greater_london_abplus_spine_private_rented.parquet.
+    Test runs get a "_test" suffix so they never overwrite a full run.
+    Skipped if that file already exists.
+    """
+
+    output_path = _interim_path("greater_london_abplus_spine_private_rented", is_test)
+    if output_path.exists():
+        print(f"Skipped identifying private rented ({output_path.name} exists)")
+        return
+
+    print("Loading spine with HASP property id")
+    spine = _load_spine_hasp(is_test)
+
+    print("Building census tenure targets")
+    oa_targets_2011 = oa_tenure_targets_2011(spine)
+    oa_targets_2021 = oa_tenure_targets_2021(spine)
+
+    print("Identifying privately rented properties")
+    spine = add_private_rented(spine, oa_targets_2011, oa_targets_2021)
+
+    print(f"Writing spine ({len(spine):,} rows) to {output_path.name}")
+    spine.to_parquet(output_path, index=False)
+
+
+def step_load_spine_private_rented(is_test):
+    """Load parquet file with the spine including the private-rented indicator."""
+
+    return pd.read_parquet(
+        _interim_path("greater_london_abplus_spine_private_rented", is_test)
     )
-    file_path_addresses = (
-        ADDRESSBASE_DIRECTORY_INTERIM / "greater_london_abplus_addresses.parquet"
-    )
-    return pd.read_parquet(file_path_spine), pd.read_parquet(file_path_addresses)
-
-
-def step_load_rent_properties():
-    """Load rent_properties parquet file."""
-
-    file_path = HASP_DIRECTORY / "wfz_rent_properties.parquet"
-    return pd.read_parquet(file_path)
 
 
 def main():
@@ -271,21 +341,17 @@ def main():
     step_build_spine_and_addresses(is_test=USE_TEST_AREA)
 
     # Stage 4: match zoopla property id to spine
-    spine, addresses = step_load_spine_and_addresses()
-    rent_properties = step_load_rent_properties()
-    spine = add_hasp_property_id(spine, addresses, rent_properties)
-    # 80267 unmatched, output: 4151457x16
+    step_match_hasp_property_id(is_test=USE_TEST_AREA)
 
     # Stage 4 1/2 (skip for now)
     # match which years have rental listings
     # match EPC data
 
     # Stage 5: identify privately rented properties
-    oa_targets_2011 = oa_tenure_targets_2011(spine)
-    oa_targets_2021 = oa_tenure_targets_2021(spine)
-    spine = add_private_rented(spine, oa_targets_2011, oa_targets_2021)
+    step_add_private_rented(is_test=USE_TEST_AREA)
 
     # Stage 6: merge in rents and adjust rents to target years
+    spine = step_load_spine_private_rented(is_test=USE_TEST_AREA)
 
     # Stage 7: estimate missing rents
 
