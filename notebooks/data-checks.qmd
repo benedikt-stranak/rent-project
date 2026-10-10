@@ -94,6 +94,7 @@ ctsop_2026 = (
 ```
 
 ```{python}
+# need to add status condition (2 or 3 on NA) !!!!!!!!
 dwellings_2011 = (
     spine[spine["is_residential_2011"]]
     .groupby("lad11cd")

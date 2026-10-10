@@ -27,29 +27,55 @@ from rent_project.config import (
     DATA_DIRECTORY,
     OA_DIRECTORY,
 )
-from rent_project.sources.addressbase import (
-    add_is_residential,
-    align_columns,
-    build_address_list,
-    build_addressbase_spine,
-    clip_to_output_areas,
-    filter_addressbase_spine,
-    load_and_concatenate,
-    load_full_addressbase,
-    load_harmonised_addressbase,
-    load_oa_boundaries,
-    load_schema_new,
-    load_schema_old,
-    rename_columns,
-    unzip_all,
-)
-
-from rent_project.pipelines.build_dataset import (
-    step_add_is_residential,
-)
 ```
 
+2011 output area tenure targets
 
 ```{python}
+# load spine
+
+spine = pd.read_parquet(
+    ADDRESSBASE_DIRECTORY_INTERIM / "greater_london_abplus_spine.parquet"
+)
+
+# Identify unoccupied dwellings in each OA
+# FUTURE: check dwelling totals against Census (OA, see data-checks)
+# FUTURE: calibrate unoccupied counts to Census (probably LSOA)
+
+res = spine["is_residential_2011"].fillna(False).astype(bool)
+state = spine["state_2011"]
+
+flags = pd.DataFrame({
+    "oa11cd": spine["oa11cd"],
+    "dwellings": res & (state.isin(["2","3"]) | state.isna()),
+    "unoccupied": res & (state.eq("3")),
+    "occupied": res & (state.eq("2") | state.isna()),
+})
+
+oa_dwellings_2011 = flags.groupby("oa11cd", as_index=False).sum()
+
+# Allocate tenure to dwellings proprtionally to household tenure shares
+# FUTURE Calibrate this to Subnational estimates of dwellings by tenure (LAD)
+
+oa_households_2011 = pd.read_csv("/Users/benito/Library/CloudStorage/OneDrive-LondonSchoolofEconomics/PhD/rent-project/data/raw/area-housing-data/tenure/census-tenure-2011-oa-QS405EW-machine-readable.csv")
+tenure_cols = [c for c in oa_households_2011.columns if c not in ("oa11cd", "households")]
+
+shares = oa_households_2011[tenure_cols].div(
+    oa_households_2011["households"], axis=0
+)
+oa_household_proportions_2011 = pd.concat(
+    [oa_households_2011[["oa11cd"]], shares], axis=1
+)
+
+merged = oa_dwellings_2011.merge(
+    oa_household_proportions_2011, on="oa11cd", how="left", validate="1:1"
+)
+
+oa_dwellings_2011_tenure = merged[["oa11cd"]].copy()
+for c in tenure_cols:
+    oa_dwellings_2011_tenure[c] = merged[c] * merged["occupied"]
+oa_dwellings_2011_tenure[tenure_cols] = oa_dwellings_2011_tenure[tenure_cols].round().astype("Int64")
+oa_dwellings_2011_tenure["unoccupied"] = merged["unoccupied"]
+
 
 ```

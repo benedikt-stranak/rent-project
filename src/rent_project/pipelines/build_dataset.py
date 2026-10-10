@@ -12,6 +12,9 @@ from rent_project.config import (
     LOOKUP_DIRECTORY,
     OA_DIRECTORY,
 )
+from rent_project.models.models import (
+    add_private_rented,
+)
 from rent_project.sources.addressbase import (
     add_area_codes,
     add_is_residential,
@@ -29,6 +32,10 @@ from rent_project.sources.addressbase import (
     load_schema_old,
     rename_columns,
     unzip_all,
+)
+from rent_project.sources.census import (
+    oa_tenure_targets_2011,
+    oa_tenure_targets_2021,
 )
 from rent_project.sources.hasp import (
     add_hasp_property_id,
@@ -274,9 +281,9 @@ def main():
     # match EPC data
 
     # Stage 5: identify privately rented properties
-    # calculate output area targets
-    # for now, randomly draw from those with hasp_id
-    # if/when exhausted those with hasp_id, randomly draw from the rest
+    oa_targets_2011 = oa_tenure_targets_2011(spine)
+    oa_targets_2021 = oa_tenure_targets_2021(spine)
+    spine = add_private_rented(spine, oa_targets_2011, oa_targets_2021)
 
     # Stage 6: merge in rents and adjust rents to target years
 
