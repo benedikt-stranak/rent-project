@@ -117,3 +117,56 @@ def add_hasp_property_id(spine, addresses, rent_properties):
         validate="one_to_one",
     )
     return spine_hasp
+
+
+def add_listed_rents(spine, listings):
+    """
+    Add annual listed rents from property listings to the spine, one column per year.
+
+    Listings are pivoted so that each property has one row, with a column for
+    each `source_year`. Prices are converted from per calendar week (pcw) to
+    per annum (pa) by multiplying by 52. These are joined onto spine rows that
+    have a `hasp_property_id`. Spine rows without a `hasp_property_id` are kept
+    unchanged, with missing values in the new columns.
+
+    Parameters
+    ----------
+    spine : pd.DataFrame
+        Dwelling-level spine with a column `hasp_property_id`.
+    listings : pd.DataFrame
+        Listings data with columns `property_id`, `source_year` and
+        `listed_price` (rent per calendar week). Must have at most one row per
+        `property_id` and `source_year` combination.
+
+    Returns
+    -------
+    pd.DataFrame
+        A copy of `spine` with one `listed_rent_{year}` column (rent per annum)
+        added for each `source_year` in `listings`. Rows are reordered so that
+        those with a `hasp_property_id` come first, followed by those without.
+        The input `spine` is not modified.
+    """
+    listings_wide = (
+        listings.pivot(
+            index="property_id",
+            columns="source_year",
+            values="listed_price",
+        )
+        .mul(52)
+        .add_prefix("listed_rent_")
+        .rename_axis(columns=None)
+        .reset_index()
+        .rename(columns={"property_id": "hasp_property_id"})
+    )
+
+    mask = spine["hasp_property_id"].notna()
+
+    spine_matched = spine.loc[mask].merge(
+        listings_wide,
+        how="left",
+        on="hasp_property_id",
+        validate="one_to_one",
+    )
+    spine_unmatched = spine.loc[~mask]
+
+    return pd.concat([spine_matched, spine_unmatched], ignore_index=True)

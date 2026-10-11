@@ -39,6 +39,7 @@ from rent_project.sources.census import (
 )
 from rent_project.sources.hasp import (
     add_hasp_property_id,
+    add_listed_rents,
 )
 
 USE_TEST_AREA = False  # set to False for the full Greater London run
@@ -116,6 +117,13 @@ def _load_rent_properties():
     """Load rent_properties parquet file."""
 
     file_path = HASP_DIRECTORY / "wfz_rent_properties.parquet"
+    return pd.read_parquet(file_path)
+
+
+def _load_rent_listings():
+    """Load rent_listings parquet file."""
+
+    file_path = HASP_DIRECTORY / "wfz_rent_listings.parquet"
     return pd.read_parquet(file_path)
 
 
@@ -348,12 +356,20 @@ def main():
     # match EPC data
 
     # Stage 5: identify privately rented properties
+    # calibrate totals to estimates
     step_add_private_rented(is_test=USE_TEST_AREA)
 
-    # Stage 6: merge in rents and adjust rents to target years
+    # Stage 6: merge in rents
     spine = step_load_spine_private_rented(is_test=USE_TEST_AREA)
+    listings = _load_rent_listings()
+    spine = add_listed_rents(spine, listings)
+    
+    # adjust rents to target years
+    # see code-development for a failed attempt and simple idea to progress
 
-    # Stage 7: estimate missing rents
+
+    # estimate missing rents
+    # simple oa imputation?
 
 
 if __name__ == "__main__":

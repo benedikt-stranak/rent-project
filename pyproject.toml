@@ -13,6 +13,7 @@ dependencies = [
     "matplotlib>=3.11.2",
     "pandas>=3.0.5",
     "pyarrow>=25.0.1",
+    "pyfixest>=0.60.0",
     "seaborn>=0.13.2",
     "uk-address-matcher>=1.4.0",
 ]

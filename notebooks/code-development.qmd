@@ -7,75 +7,77 @@ Setup
 
 ```{python}
 from pathlib import Path
-from zipfile import ZipFile
 
-import duckdb
 import pandas as pd
 import matplotlib.pyplot as plt
 import geopandas as gpd
-from uk_address_matcher import (
-    AddressMatcher,
-    ExactMatchStage,
-    PeeledAddressStage,
-    UniqueTrigramStage,
-    SplinkStage,
-)
 
 from rent_project.config import (
     ADDRESSBASE_DIRECTORY_INTERIM,
     ADDRESSBASE_DIRECTORY_RAW,
     DATA_DIRECTORY,
     OA_DIRECTORY,
+    HASP_DIRECTORY,
 )
 ```
 
-2011 output area tenure targets
+Uprating listed rents - attempt to do this with fixed effects.
+Problem: there will be boroughs (City of London likely) with few repeated observations, where the borough-year effects will not be calculated.
+Could do instead: something like a spatial regression with an adaptive bandwidth instead of a borough fixed effect?
+Advantage of this approach: consistent in a sense that I am estimating what the listing price in a given year would be
+
+Instead:
+- Construct a matrix of indices from ONS (local authority specific, regional where local authority missing)
+- Take spine and downrate/uprate the closest listings
+- Boom
 
 ```{python}
-# load spine
 
-spine = pd.read_parquet(
-    ADDRESSBASE_DIRECTORY_INTERIM / "greater_london_abplus_spine.parquet"
+
+listings["property_id"].nunique()
+listings.groupby(["property_id"]).size().value_counts()
+listings["source_year"].value_counts().sort_index()
+listings.groupby(["property_id","source_year"]).size().value_counts()
+
+presence = pd.crosstab(listings["property_id"], listings["source_year"])
+overlap = presence.T.dot(presence)
+
+# Download and assemble a postcode lookup
+postcodes = pd.read_parquet("/Users/benito/Library/CloudStorage/OneDrive-LondonSchoolofEconomics/PhD/rent-project/data/raw/lookups/onspd_aug_2026.parquet")
+
+# merge lad code into rent_properties into rent_listings
+listings_lad = (
+    listings
+    .merge(properties[["property_id","postcode"]], how="left", on="property_id")
+    .merge(postcodes[["pcds","lad26cd"]], how="left", left_on="postcode", right_on="pcds")
 )
 
-# Identify unoccupied dwellings in each OA
-# FUTURE: check dwelling totals against Census (OA, see data-checks)
-# FUTURE: calibrate unoccupied counts to Census (probably LSOA)
+# checking it worked
+listings_lad["lad26cd"].value_counts(dropna=False) # 33
+listings_lad["lad26cd"].value_counts(dropna=False).sum() # 1549791
+listings_lad["lad26cd"].isna().sum() #0
 
-res = spine["is_residential_2011"].fillna(False).astype(bool)
-state = spine["state_2011"]
+# data prep
+df = listings_lad[["property_id", "lad26cd", "source_year", "listed_price"]]
+df["log_price"] = np.log(df["listed_price"])
+df["la_year"] = df["lad26cd"] + "_" + df["source_year"].astype(str)
 
-flags = pd.DataFrame({
-    "oa11cd": spine["oa11cd"],
-    "dwellings": res & (state.isin(["2","3"]) | state.isna()),
-    "unoccupied": res & (state.eq("3")),
-    "occupied": res & (state.eq("2") | state.isna()),
-})
+years = sorted(df["source_year"].unique())
 
-oa_dwellings_2011 = flags.groupby("oa11cd", as_index=False).sum()
+# fit fixed effects on rent_listings
+model = pf.feols("log_price ~ 1 | property_id + la_year", data=df)
+gamma = pd.Series(model.fixef()["C(la_year)"])      # borough-year effects
 
-# Allocate tenure to dwellings proprtionally to household tenure shares
-# FUTURE Calibrate this to Subnational estimates of dwellings by tenure (LAD)
+df["alpha_part"] = df["log_price"] - df["la_year"].map(gamma)
+props = df.groupby("property_id").agg(alpha=("alpha_part", "mean"), lad26cd=("lad26cd", "first")).reset_index()
 
-oa_households_2011 = pd.read_csv("/Users/benito/Library/CloudStorage/OneDrive-LondonSchoolofEconomics/PhD/rent-project/data/raw/area-housing-data/tenure/census-tenure-2011-oa-QS405EW-machine-readable.csv")
-tenure_cols = [c for c in oa_households_2011.columns if c not in ("oa11cd", "households")]
+# estimate 2011, 2021, 2024 rent for each property
 
-shares = oa_households_2011[tenure_cols].div(
-    oa_households_2011["households"], axis=0
-)
-oa_household_proportions_2011 = pd.concat(
-    [oa_households_2011[["oa11cd"]], shares], axis=1
-)
+for year in years:
+    props[f"estimated_rent_{year}"] = np.exp(props["alpha"] + (props["lad26cd"] + f"_{year}").map(gamma))
 
-merged = oa_dwellings_2011.merge(
-    oa_household_proportions_2011, on="oa11cd", how="left", validate="1:1"
-)
 
-oa_dwellings_2011_tenure = merged[["oa11cd"]].copy()
-for c in tenure_cols:
-    oa_dwellings_2011_tenure[c] = merged[c] * merged["occupied"]
-oa_dwellings_2011_tenure[tenure_cols] = oa_dwellings_2011_tenure[tenure_cols].round().astype("Int64")
-oa_dwellings_2011_tenure["unoccupied"] = merged["unoccupied"]
 
+# then merge into spine either: actually existing or estimated rent for the three years
 
 ```

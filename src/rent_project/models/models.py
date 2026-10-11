@@ -2,6 +2,7 @@
 
 import numpy as np
 import pandas as pd
+import pyfixest as pf
 
 
 def add_private_rented(spine, oa_targets_2011, oa_targets_2021):
@@ -58,3 +59,5 @@ def add_private_rented(spine, oa_targets_2011, oa_targets_2021):
         spine[f"private_rented_{year}"] = spine.index.isin(chosen)
 
     return spine
+
+    
