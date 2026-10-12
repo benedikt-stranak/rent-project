@@ -7,10 +7,12 @@ from rent_project.config import (
 )
 
 TENURE_2011_PATH = (
-    DATA_DIRECTORY / "raw/area-housing-data/tenure/census-tenure-2011-oa-QS405EW-machine-readable.csv"
+    DATA_DIRECTORY
+    / "raw/area-housing-data/tenure/census-tenure-2011-oa-QS405EW-machine-readable.csv"
 )
 TENURE_2021_PATH = (
-    DATA_DIRECTORY / "raw/area-housing-data/tenure/census-tenure-2021-oa-TS054-machine-readable.csv"
+    DATA_DIRECTORY
+    / "raw/area-housing-data/tenure/census-tenure-2021-oa-TS054-machine-readable.csv"
 )
 
 
@@ -37,12 +39,14 @@ def oa_tenure_targets_2011(spine):
     res = spine["is_residential_2011"].fillna(False).astype(bool)
     state = spine["state_2011"]
 
-    flags = pd.DataFrame({
-        "oa11cd": spine["oa11cd"],
-        "dwellings": res & (state.isin(["2", "3"]) | state.isna()),
-        "unoccupied": res & state.eq("3"),
-        "occupied": res & (state.eq("2") | state.isna()),
-    })
+    flags = pd.DataFrame(
+        {
+            "oa11cd": spine["oa11cd"],
+            "dwellings": res & (state.isin(["2", "3"]) | state.isna()),
+            "unoccupied": res & state.eq("3"),
+            "occupied": res & (state.eq("2") | state.isna()),
+        }
+    )
 
     oa_dwellings_2011 = flags.groupby("oa11cd", as_index=False).sum()
 
@@ -99,12 +103,14 @@ def oa_tenure_targets_2021(spine):
     res = spine["is_residential_2021"].fillna(False).astype(bool)
     state = spine["state_2021"]
 
-    flags = pd.DataFrame({
-        "oa21cd": spine["oa21cd"],
-        "dwellings": res & (state.isin(["2", "3"]) | state.isna()),
-        "unoccupied": res & state.eq("3"),
-        "occupied": res & (state.eq("2") | state.isna()),
-    })
+    flags = pd.DataFrame(
+        {
+            "oa21cd": spine["oa21cd"],
+            "dwellings": res & (state.isin(["2", "3"]) | state.isna()),
+            "unoccupied": res & state.eq("3"),
+            "occupied": res & (state.eq("2") | state.isna()),
+        }
+    )
 
     oa_dwellings_2021 = flags.groupby("oa21cd", as_index=False).sum()
 

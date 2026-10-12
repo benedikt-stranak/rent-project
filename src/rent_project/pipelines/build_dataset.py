@@ -11,6 +11,7 @@ from rent_project.config import (
     HASP_DIRECTORY,
     LOOKUP_DIRECTORY,
     OA_DIRECTORY,
+    PROCESSED_DIRECTORY,
 )
 from rent_project.models.models import (
     add_estimated_rents,
@@ -58,6 +59,16 @@ def _interim_path(stem, is_test):
 
     suffix = "_test" if is_test else ""
     return ADDRESSBASE_DIRECTORY_INTERIM / f"{stem}{suffix}.parquet"
+
+
+def _processed_path(stem, is_test):
+    """Path to a processed parquet file.
+
+    Test runs get a "_test" suffix so they never overwrite a full run.
+    """
+
+    suffix = "_test" if is_test else ""
+    return PROCESSED_DIRECTORY / f"{stem}{suffix}.parquet"
 
 
 def _load_addressbase(year):
@@ -147,6 +158,7 @@ def _load_spine_rents(is_test):
     """Load parquet file with the spine including listed, uprated and estimated rents."""
 
     return pd.read_parquet(_interim_path("greater_london_abplus_spine_rents", is_test))
+
 
 # Steps: called from main(), in order
 
@@ -360,6 +372,28 @@ def step_add_rents(is_test):
     spine.to_parquet(output_path, index=False)
 
 
+def step_save_processed_spine(is_test):
+    """Save the final spine to the processed data folder.
+
+    Loads the spine with listed, uprated and estimated rents and writes
+    processed/greater_london_abplus_spine.parquet.
+    Test runs get a "_test" suffix so they never overwrite a full run.
+    Skipped if that file already exists.
+    """
+
+    output_path = _processed_path("greater_london_abplus_spine", is_test)
+    if output_path.exists():
+        print(f"Skipped saving processed spine ({output_path.name} exists)")
+        return
+    PROCESSED_DIRECTORY.mkdir(parents=True, exist_ok=True)
+
+    print("Loading spine with rents")
+    spine = _load_spine_rents(is_test)
+
+    print(f"Writing spine ({len(spine):,} rows) to {output_path}")
+    spine.to_parquet(output_path, index=False)
+
+
 def main():
     """Run the AddressBase Plus pipeline end to end."""
 
@@ -407,8 +441,8 @@ def main():
     # Stage 6: merge in listed rents, uprate to target years, estimate missing rents
     step_add_rents(is_test=USE_TEST_AREA)
 
-    # Stage 7: ?
-    spine = _load_spine_rents(is_test=USE_TEST_AREA)
+    # Stage 7: save the final spine to data/processed
+    step_save_processed_spine(is_test=USE_TEST_AREA)
 
 
 if __name__ == "__main__":

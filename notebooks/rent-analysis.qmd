@@ -1,0 +1,46 @@
+---
+title: "Rent analysis"
+format: html
+---
+
+```{python}
+import pandas as pd
+
+from rent_project.config import (
+    PROCESSED_DIRECTORY,
+)
+```
+
+Loading data
+```{python}
+data = pd.read_parquet(PROCESSED_DIRECTORY / "greater_london_abplus_spine.parquet")
+```
+
+Checking data is ok
+
+```{python}
+# overall size
+len(data) # 4 151 457
+
+len(
+    data[
+        (data["is_residential_2011"] == True)
+        & (data["state_2011"].eq("2") | data["state_2011"].isna())
+    ]
+) # 3 450 307
+
+len(
+    data[
+        (data["is_residential_2021"] == True)
+        & (data["state_2021"].eq("2") | data["state_2021"].isna())
+    ]
+) # 3 795 583
+
+len(
+    data[
+        (data["is_residential_2026"] == True)
+        & (data["state_2026"].eq("2") | data["state_2026"].isna())
+    ]
+) # 3 956 394
+
+```

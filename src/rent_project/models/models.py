@@ -2,6 +2,7 @@
 
 import numpy as np
 import pandas as pd
+from scipy.spatial import cKDTree
 
 from rent_project.config import (
     DATA_DIRECTORY,
@@ -47,15 +48,19 @@ def add_private_rented(spine, oa_targets_2011, oa_targets_2021):
         state = spine[f"state_{year}"]
         occupied = res & (state.eq("2") | state.isna()) & spine[oa_col].notna()
 
-        cand = pd.DataFrame({
-            "oa": spine.loc[occupied, oa_col],
-            "has_hasp": spine.loc[occupied, "hasp_property_id"].notna(),
-            "rand": rng.random(occupied.sum()),
-        })
+        cand = pd.DataFrame(
+            {
+                "oa": spine.loc[occupied, oa_col],
+                "has_hasp": spine.loc[occupied, "hasp_property_id"].notna(),
+                "rand": rng.random(occupied.sum()),
+            }
+        )
         targets = oa_targets.set_index(oa_col)["private_rented"].fillna(0).astype(int)
         cand["target"] = cand["oa"].map(targets).fillna(0).astype(int)
 
-        cand = cand.sort_values(["oa", "has_hasp", "rand"], ascending=[True, False, True])
+        cand = cand.sort_values(
+            ["oa", "has_hasp", "rand"], ascending=[True, False, True]
+        )
         cand["rank"] = cand.groupby("oa").cumcount()
 
         chosen = cand.index[cand["rank"] < cand["target"]]
@@ -124,10 +129,6 @@ def add_uprated_rents(spine, target_years):
         spine[f"est_rent_{t}"] = np.where(has_listing, est, np.nan)
 
     return spine
-    
-
-import numpy as np
-from scipy.spatial import cKDTree
 
 
 def add_estimated_rents(spine, target_years):
@@ -160,7 +161,7 @@ def add_estimated_rents(spine, target_years):
         latter two are NaN for addresses that were not targets. The input
         `spine` is not modified.
     """
-    
+
     spine = spine.copy()
     rent_cols = [f"est_rent_{y}" for y in target_years]
 
@@ -173,7 +174,9 @@ def add_estimated_rents(spine, target_years):
     xy = spine[["x_coordinate", "y_coordinate"]].to_numpy()
     tree = cKDTree(xy[is_donor])
     dist, neighbours = tree.query(xy[is_target], k=8, distance_upper_bound=3000)
-    found = np.isfinite(dist)  # (n_targets, k); True where a neighbour slot holds a real donor
+    found = np.isfinite(
+        dist
+    )  # (n_targets, k); True where a neighbour slot holds a real donor
 
     # Median rent of the neighbours, for each year
     for col in rent_cols:
