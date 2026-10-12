@@ -135,6 +135,19 @@ def _load_spine_hasp(is_test):
     return pd.read_parquet(_interim_path("greater_london_abplus_spine_hasp", is_test))
 
 
+def _load_spine_private_rented(is_test):
+    """Load parquet file with the spine including the private-rented indicator."""
+
+    return pd.read_parquet(
+        _interim_path("greater_london_abplus_spine_private_rented", is_test)
+    )
+
+
+def _load_spine_rents(is_test):
+    """Load parquet file with the spine including listed, uprated and estimated rents."""
+
+    return pd.read_parquet(_interim_path("greater_london_abplus_spine_rents", is_test))
+
 # Steps: called from main(), in order
 
 
@@ -309,12 +322,42 @@ def step_add_private_rented(is_test):
     spine.to_parquet(output_path, index=False)
 
 
-def step_load_spine_private_rented(is_test):
-    """Load parquet file with the spine including the private-rented indicator."""
+def step_add_rents(is_test):
+    """Merge in listed rents, uprate them to target years, and estimate missing rents.
 
-    return pd.read_parquet(
-        _interim_path("greater_london_abplus_spine_private_rented", is_test)
-    )
+    Loads the spine with the private-rented indicator and the rent listings,
+    adds listed rents, uprates them to the target years, estimates rents
+    where none were listed, and writes
+    interim/address-base-plus/greater_london_abplus_spine_rents.parquet.
+    Test runs get a "_test" suffix so they never overwrite a full run.
+    Skipped if that file already exists.
+    """
+
+    output_path = _interim_path("greater_london_abplus_spine_rents", is_test)
+    if output_path.exists():
+        print(f"Skipped adding rents ({output_path.name} exists)")
+        return
+
+    print("Loading spine with private-rented indicator and rent listings")
+    spine = _load_spine_private_rented(is_test)
+    listings = _load_rent_listings()
+
+    print("Adding listed rents")
+    spine = add_listed_rents(spine, listings)
+
+    # Adjust rents to target years
+    # Could try more granular uprating between 2014 and 2024, see code development
+    target_years = [2011, 2014, 2021, 2024]
+    print(f"Uprating rents to {target_years}")
+    spine = add_uprated_rents(spine, target_years)
+
+    # Estimate missing rents
+    # Next: hedonic regression
+    print("Estimating missing rents")
+    spine = add_estimated_rents(spine, target_years)
+
+    print(f"Writing spine ({len(spine):,} rows) to {output_path.name}")
+    spine.to_parquet(output_path, index=False)
 
 
 def main():
@@ -361,20 +404,11 @@ def main():
     # calibrate totals to ONS estimates (see target calculations on census.py)
     step_add_private_rented(is_test=USE_TEST_AREA)
 
-    # Stage 6: merge in rents
-    spine = step_load_spine_private_rented(is_test=USE_TEST_AREA)
-    listings = _load_rent_listings()
-    spine = add_listed_rents(spine, listings)
-    
-    # adjust rents to target years
-    # could try more granular uprating between 2014 and 2024, see code development
-    target_years = [2011, 2014, 2021, 2024]
-    spine = add_uprated_rents(spine, target_years)
+    # Stage 6: merge in listed rents, uprate to target years, estimate missing rents
+    step_add_rents(is_test=USE_TEST_AREA)
 
-    # estimate missing rents
-    # next do hedonic regression
-    spine = add_estimated_rents(spine, target_years)
-    
+    # Stage 7: ?
+    spine = _load_spine_rents(is_test=USE_TEST_AREA)
 
 
 if __name__ == "__main__":
