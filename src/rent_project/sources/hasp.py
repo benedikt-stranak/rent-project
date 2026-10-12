@@ -125,29 +125,37 @@ def add_listed_rents(spine, listings):
 
     Listings are pivoted so that each property has one row, with a column for
     each `source_year`. Prices are converted from per calendar week (pcw) to
-    per annum (pa) by multiplying by 52. These are joined onto spine rows that
-    have a `hasp_property_id`. Spine rows without a `hasp_property_id` are kept
-    unchanged, with missing values in the new columns.
+    per annum (pa) by multiplying by 52. These are left-joined onto the spine
+    using `hasp_property_id`. Spine rows without a `hasp_property_id` are kept
+    with missing values in the new columns.
 
     Parameters
     ----------
     spine : pd.DataFrame
-        Dwelling-level spine with a column `hasp_property_id`.
+        Dwelling-level spine with a column `hasp_property_id`. Non-null values
+        of `hasp_property_id` must be unique.
     listings : pd.DataFrame
         Listings data with columns `property_id`, `source_year` and
-        `listed_price` (rent per calendar week). Must have at most one row per
-        `property_id` and `source_year` combination.
+        `listed_price` (rent per calendar week).
 
     Returns
     -------
     pd.DataFrame
         A copy of `spine` with one `listed_rent_{year}` column (rent per annum)
-        added for each `source_year` in `listings`. Rows are reordered so that
-        those with a `hasp_property_id` come first, followed by those without.
-        The input `spine` is not modified.
+        added for each `source_year` in `listings`. The input `spine` is not modified.
+
+    Raises
+    ------
+    AssertionError
+        If the non-null values of `spine["hasp_property_id"]` are not unique.
     """
+    assert spine["hasp_property_id"].dropna().is_unique, (
+        "Non-null `hasp_property_id` values in spine must be unique."
+    )
+
     listings_wide = (
-        listings.pivot(
+        listings.dropna(subset=["property_id"])
+        .pivot(
             index="property_id",
             columns="source_year",
             values="listed_price",
@@ -159,14 +167,11 @@ def add_listed_rents(spine, listings):
         .rename(columns={"property_id": "hasp_property_id"})
     )
 
-    mask = spine["hasp_property_id"].notna()
-
-    spine_matched = spine.loc[mask].merge(
+    spine_listed_rents = spine.merge(
         listings_wide,
         how="left",
         on="hasp_property_id",
-        validate="one_to_one",
+        validate="many_to_one",
     )
-    spine_unmatched = spine.loc[~mask]
 
-    return pd.concat([spine_matched, spine_unmatched], ignore_index=True)
+    return spine_listed_rents

@@ -7,7 +7,9 @@ Setup
 
 ```{python}
 from pathlib import Path
+from scipy.spatial import cKDTree
 
+import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import geopandas as gpd
@@ -26,13 +28,7 @@ Problem: there will be boroughs (City of London likely) with few repeated observ
 Could do instead: something like a spatial regression with an adaptive bandwidth instead of a borough fixed effect?
 Advantage of this approach: consistent in a sense that I am estimating what the listing price in a given year would be
 
-Instead:
-- Construct a matrix of indices from ONS (local authority specific, regional where local authority missing)
-- Take spine and downrate/uprate the closest listings
-- Boom
-
 ```{python}
-
 
 listings["property_id"].nunique()
 listings.groupby(["property_id"]).size().value_counts()
@@ -77,7 +73,71 @@ for year in years:
     props[f"estimated_rent_{year}"] = np.exp(props["alpha"] + (props["lad26cd"] + f"_{year}").map(gamma))
 
 
-
 # then merge into spine either: actually existing or estimated rent for the three years
+
+```
+
+Rent inputation
+
+```{python}
+len(spine)
+len(spine[~spine["est_rent_2011"].isna()])
+
+spine.groupby("oa11cd").size().value_counts()
+listings_by_oa = 
+spine[~spine["est_rent_2011"].isna()].groupby("lsoa21cd").size().value_counts(dropna=False).sort_index()
+
+
+
+years = [2011, 2014, 2021, 2024]
+K = 8                  # neighbours to use
+MAX_DIST = 1000        # metres; donors further away are ignored
+
+# Recipients: private rented in either census year
+is_target = spine["private_rented_2011"] | spine["private_rented_2021"]
+print(is_target.sum(), "target properties")
+
+for y in years:
+    col = f"est_rent_{y}"
+    n_missing = (is_target & spine[col].isna()).sum()
+    n_donors = spine[col].notna().sum()
+    print(y, "| targets missing:", n_missing, "| donors:", n_donors)
+
+
+y = 2011
+col = f"est_rent_{y}"
+
+donor_mask = spine[col].notna()
+target_mask = is_target & spine[col].isna()
+
+donor_xy = spine.loc[donor_mask, ["x_coordinate", "y_coordinate"]].to_numpy()
+donor_rent = spine.loc[donor_mask, col].to_numpy()
+target_xy = spine.loc[target_mask, ["x_coordinate", "y_coordinate"]].to_numpy()
+
+tree = cKDTree(donor_xy)
+dist, idx = tree.query(target_xy, k=K, distance_upper_bound=MAX_DIST)
+
+# Missing neighbours come back with idx == len(donors) and dist == inf.
+# Pad donor_rent with a NaN so those indices resolve to NaN.
+rent_padded = np.append(donor_rent, np.nan)
+neighbour_rents = rent_padded[idx]           # shape (n_targets, K)
+
+imputed = np.nanmedian(neighbour_rents, axis=1)   # NaN if no donors within MAX_DIST
+n_donors_used = np.isfinite(dist).sum(axis=1)
+mean_dist = np.where(np.isfinite(dist), dist, np.nan)
+mean_dist = np.nanmean(mean_dist, axis=1)
+
+spine[f"{col}_imputed"] = False
+spine[f"{col}_n_donors"] = np.nan
+spine[f"{col}_donor_dist"] = np.nan
+
+spine.loc[target_mask, col] = imputed
+spine.loc[target_mask, f"{col}_n_donors"] = n_donors_used
+spine.loc[target_mask, f"{col}_donor_dist"] = mean_dist
+spine.loc[target_mask & spine[col].notna(), f"{col}_imputed"] = True
+
+print(spine.loc[target_mask, col].notna().mean(), "of targets filled")
+
+spine.loc[target_mask, [col, f"{col}_n_donors", f"{col}_donor_dist"]].describe()
 
 ```

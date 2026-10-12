@@ -13,7 +13,9 @@ from rent_project.config import (
     OA_DIRECTORY,
 )
 from rent_project.models.models import (
+    add_estimated_rents,
     add_private_rented,
+    add_uprated_rents,
 )
 from rent_project.sources.addressbase import (
     add_area_codes,
@@ -356,7 +358,7 @@ def main():
     # match EPC data
 
     # Stage 5: identify privately rented properties
-    # calibrate totals to estimates
+    # calibrate totals to ONS estimates (see target calculations on census.py)
     step_add_private_rented(is_test=USE_TEST_AREA)
 
     # Stage 6: merge in rents
@@ -365,11 +367,14 @@ def main():
     spine = add_listed_rents(spine, listings)
     
     # adjust rents to target years
-    # see code-development for a failed attempt and simple idea to progress
-
+    # could try more granular uprating between 2014 and 2024, see code development
+    target_years = [2011, 2014, 2021, 2024]
+    spine = add_uprated_rents(spine, target_years)
 
     # estimate missing rents
-    # simple oa imputation?
+    # next do hedonic regression
+    spine = add_estimated_rents(spine, target_years)
+    
 
 
 if __name__ == "__main__":
