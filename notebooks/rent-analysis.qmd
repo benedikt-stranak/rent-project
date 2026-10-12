@@ -53,3 +53,5 @@ data.groupby("est_rent_imputed")["est_rent_2024"].agg(["mean", "count"])
 ```
 
 NEXT: Check actual listed rents for outliers and exclude these, then re-run imputation.
+
+Or: Start making maps and maybe these outliers will show themselves anyway?
