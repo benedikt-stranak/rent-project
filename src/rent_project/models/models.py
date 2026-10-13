@@ -1,5 +1,7 @@
 """Various models."""
 
+import warnings
+
 import numpy as np
 import pandas as pd
 from scipy.spatial import cKDTree
@@ -137,7 +139,7 @@ def add_estimated_rents(spine, target_years):
 
     Targets are addresses that are private rented in 2011 or 2021 and have no
     rent estimate. Each target gets, for every target year, the mean of the
-    16 nearest addresses with an estimate, ignoring any further than 1 km.
+    8 nearest addresses with an estimate, ignoring any further than 1 km.
     Targets with no donor within 1 km stay NaN. Donors are never imputed values.
 
     An address either has all `est_rent_YYYY` values or none of them, so the
@@ -173,18 +175,21 @@ def add_estimated_rents(spine, target_years):
     # Find the nearest donors for each target (once, for all years)
     xy = spine[["x_coordinate", "y_coordinate"]].to_numpy()
     tree = cKDTree(xy[is_donor])
-    dist, neighbours = tree.query(xy[is_target], k=16, distance_upper_bound=1000)
-    found = np.isfinite(
-        dist
-    )  # (n_targets, k); True where a neighbour slot holds a real donor
+    dist, neighbours = tree.query(xy[is_target], k=8, distance_upper_bound=1000)
+    # (n_targets, k); True where a neighbour slot holds a real donor
+    found = np.isfinite(dist)  
 
-    # Median rent of the neighbours, for each year
-    for col in rent_cols:
-        donor_rents = spine.loc[is_donor, col].to_numpy(dtype=float)
-        donor_rents = np.append(donor_rents, np.nan)  # padding for missing neighbours
-        spine.loc[is_target, col] = np.nanmean(donor_rents[neighbours], axis=1)
+    # Targets with no donors give all-NaN rows; nanmean returns NaN for them (as intended) but warns
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", message="Mean of empty slice")
 
-    mean_dist = np.nanmean(np.where(found, dist, np.nan), axis=1)
+        # Mean rent of the neighbours, for each year
+        for col in rent_cols:
+            donor_rents = spine.loc[is_donor, col].to_numpy(dtype=float)
+            donor_rents = np.append(donor_rents, np.nan)  # padding for missing neighbours
+            spine.loc[is_target, col] = np.nanmean(donor_rents[neighbours], axis=1)
+
+        mean_dist = np.nanmean(np.where(found, dist, np.nan), axis=1)
 
     # Flags, reported once
     n_donors = np.full(len(spine), np.nan)

@@ -43,6 +43,7 @@ from rent_project.sources.census import (
 from rent_project.sources.hasp import (
     add_hasp_property_id,
     add_listed_rents,
+    filter_rent_listings,
 )
 
 USE_TEST_AREA = False  # set to False for the full Greater London run
@@ -338,8 +339,8 @@ def step_add_rents(is_test):
     """Merge in listed rents, uprate them to target years, and estimate missing rents.
 
     Loads the spine with the private-rented indicator and the rent listings,
-    adds listed rents, uprates them to the target years, estimates rents
-    where none were listed, and writes
+    drops listings with implausible prices, adds listed rents, uprates them to
+    the target years, estimates rents where none were listed, and writes
     interim/address-base-plus/greater_london_abplus_spine_rents.parquet.
     Test runs get a "_test" suffix so they never overwrite a full run.
     Skipped if that file already exists.
@@ -353,6 +354,13 @@ def step_add_rents(is_test):
     print("Loading spine with private-rented indicator and rent listings")
     spine = _load_spine_private_rented(is_test)
     listings = _load_rent_listings()
+
+    n_listings = len(listings)
+    listings = filter_rent_listings(listings)
+    n_dropped = n_listings - len(listings)
+    print(
+        f"Dropped {n_dropped:,} of {n_listings:,} listings (price outside 10–10,000 pcw)"
+    )
 
     print("Adding listed rents")
     spine = add_listed_rents(spine, listings)
@@ -368,6 +376,12 @@ def step_add_rents(is_test):
     print("Estimating missing rents")
     spine = add_estimated_rents(spine, target_years)
 
+    n_targets = spine["est_rent_n_donors"].notna().sum()
+    n_no_donors = (spine["est_rent_n_donors"] == 0).sum()
+    print(
+        f"{n_no_donors:,} of {n_targets:,} left missing (no donor within 1 km)"
+    )
+
     print(f"Writing spine ({len(spine):,} rows) to {output_path.name}")
     spine.to_parquet(output_path, index=False)
 
@@ -376,12 +390,12 @@ def step_save_processed_spine(is_test):
     """Save the final spine to the processed data folder.
 
     Loads the spine with listed, uprated and estimated rents and writes
-    processed/greater_london_abplus_spine.parquet.
+    processed/greater_london_rents_dataset.parquet.
     Test runs get a "_test" suffix so they never overwrite a full run.
     Skipped if that file already exists.
     """
 
-    output_path = _processed_path("greater_london_abplus_spine", is_test)
+    output_path = _processed_path("greater_london_rents_dataset", is_test)
     if output_path.exists():
         print(f"Skipped saving processed spine ({output_path.name} exists)")
         return
@@ -439,6 +453,10 @@ def main():
     step_add_private_rented(is_test=USE_TEST_AREA)
 
     # Stage 6: merge in listed rents, uprate to target years, estimate missing rents
+    # remember to report: how many listings dropped because outside 10-10000pw
+    # Dropped 907 of 1,549,791 listings (price outside 10–10,000 pcw)
+    # how many rents not estimated (bcs no donors within 1000m)
+    # 24 of 785,979 left missing (no donor within 1 km)
     step_add_rents(is_test=USE_TEST_AREA)
 
     # Stage 7: save the final spine to data/processed

@@ -38,7 +38,9 @@ from uk_address_matcher import (
 
 from rent_project.config import (
     DATA_DIRECTORY,
+    HASP_DIRECTORY,
     ADDRESSBASE_DIRECTORY_INTERIM,
+    PROCESSED_DIRECTORY,
     LONDON_BOROUGHS,
 )
 
@@ -289,3 +291,45 @@ matched_probabilistic_sample.to_csv(ADDRESSBASE_DIRECTORY_INTERIM / "matched_has
 
 # Compare allocated PRS dwelling totals to ONS (by local authority)
 
+# Check Zoopla data for outliers
+
+Listings distribution
+
+```{python}
+listings = pd.read_parquet(HASP_DIRECTORY / "wfz_rent_listings.parquet")
+
+# pd.options.display.float_format = "{:,.2f}".format
+listings["listed_price"].describe(
+    percentiles=[0.001, 0.01, 0.1, .5, .9, .99, .999]
+)
+
+pd.qcut(
+    listings["listed_price"],
+    q=[0, 0.001, 0.01, 0.1, .5, .9, .99, .999, 1],
+    ).value_counts().sort_index()
+
+listings_clipped = listings[(listings["listed_price"] <= 10000) & (listings["listed_price"] >= 10)]
+listings_filtered = listings[listings["listed_price"].between(10, 10000)].copy()
+
+sns.kdeplot(data=listings_clipped, x="listed_price", hue="source_year", common_norm=False)
+
+```
+
+What it does to the overall data
+
+```{python}
+data = pd.read_parquet(PROCESSED_DIRECTORY / "greater_london_rents_dataset.parquet")
+
+# overall size
+len(data) # 4 151 457
+
+# number of private rented dwellings
+len(data[data["private_rented_2011"] == True]) # 878 151 private rented in 2011
+len(data[data["private_rented_2021"] == True]) # 1,174,022 private rented in 2021
+
+# average estimated rent (estimates vs imputed)
+data.groupby("est_rent_imputed")["est_rent_2011"].agg(["mean", "count"])
+data.groupby("est_rent_imputed")["est_rent_2014"].agg(["mean", "count"])
+data.groupby("est_rent_imputed")["est_rent_2021"].agg(["mean", "count"])
+data.groupby("est_rent_imputed")["est_rent_2024"].agg(["mean", "count"])
+```

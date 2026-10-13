@@ -119,6 +119,26 @@ def add_hasp_property_id(spine, addresses, rent_properties):
     return spine_hasp
 
 
+def filter_rent_listings(listings):
+    """
+    Remove listings with a listed price below 10 or above 10,000 (pcw).
+
+    Parameters
+    ----------
+    listings : pd.DataFrame
+        Listings data with a column `listed_price` (rent per calendar week).
+
+    Returns
+    -------
+    pd.DataFrame
+        A copy of `listings` containing only rows where `listed_price` is
+        between 10 and 10,000 inclusive.
+    """
+
+    listings_filtered = listings[listings["listed_price"].between(10, 10000)].copy()
+    return listings_filtered
+
+
 def add_listed_rents(spine, listings):
     """
     Add annual listed rents from property listings to the spine, one column per year.
