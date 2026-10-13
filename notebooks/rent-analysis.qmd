@@ -11,12 +11,13 @@ import pandas as pd
 
 from rent_project.config import (
     PROCESSED_DIRECTORY,
+    OUTPUT_DIRECTORY,
 )
 ```
 
 Loading data
 ```{python}
-data = pd.read_parquet(PROCESSED_DIRECTORY / "greater_london_abplus_spine.parquet")
+data = pd.read_parquet(PROCESSED_DIRECTORY / "greater_london_rents_dataset.parquet")
 ```
 
 Checking data is ok
@@ -52,6 +53,71 @@ data.groupby("est_rent_imputed")["est_rent_2021"].agg(["mean", "count"])
 data.groupby("est_rent_imputed")["est_rent_2024"].agg(["mean", "count"])
 ```
 
-NEXT: Check actual listed rents for outliers and exclude these, then re-run imputation.
+Totals
 
-Or: Start making maps and maybe these outliers will show themselves anyway?
+```{python}
+n_2011 = len(data[data["private_rented_2011"]]) # 878,151 private rented in 2011
+t_2011 = data[data["private_rented_2011"]]["est_rent_2011"].sum() # £16,860,249,333 paid in 2011
+t_2011 / n_2011 / 12 # average 1,600 pcm
+
+
+n_2021 = len(data[data["private_rented_2021"]]) # 1,174,022 private rented in 2021
+t_2021 = data[data["private_rented_2021"]]["est_rent_2021"].sum() # £28,271,600,199 paid in 2021
+t_2021 / n_2021 / 12 # average 2,007 pcm
+
+# If the same addresses were private rented in 2024, their residents would pay ...
+data[data["private_rented_2021"]]["est_rent_2024"].sum() # £33,975,017,640 paid in 2024*
+
+```
+
+Maps
+
+Go through the code below
+
+```{python}
+import pandas as pd
+import geopandas as gpd
+import matplotlib.pyplot as plt
+
+HEX_PATH = "path/to/your/hex_grid.shp"  # <- your hex grid file
+
+# --- 1. Load all properties as points --------------------------------------
+df = pd.read_csv("properties.csv")
+points = gpd.GeoDataFrame(
+    df,
+    geometry=gpd.points_from_xy(df["x_coordinate"], df["y_coordinate"]),
+    crs="EPSG:27700",  # British National Grid
+)
+
+# --- 2. Load the hex grid (reprojected to BNG to match the points) ---------
+hexes = gpd.read_file(HEX_PATH).to_crs("EPSG:27700")
+
+# --- 3. Assign each property to a hexagon and aggregate --------------------
+joined = gpd.sjoin(points, hexes[["geometry"]], predicate="within")
+
+# Rent only counts towards the total for privately rented properties
+joined["private_rent"] = joined["est_rent_2021"].where(joined["private_rented_2021"], 0)
+
+stats = joined.groupby("index_right").agg(
+    n_properties=("private_rented_2021", "size"),
+    n_private_rented=("private_rented_2021", "sum"),
+    total_rent=("private_rent", "sum"),
+)
+hexes = hexes.join(stats)  # hexagons with no properties get NaN
+
+print(f"Average properties per hexagon: {hexes['n_properties'].mean():.1f}")
+
+# --- 4. Plot total rent ----------------------------------------------------
+fig, ax = plt.subplots(figsize=(10, 9))
+hexes.dropna(subset=["total_rent"]).plot(
+    column="total_rent",
+    cmap="viridis",
+    legend=True,
+    legend_kwds={"label": "Total estimated private rent, 2021 (£)", "shrink": 0.6},
+    ax=ax,
+)
+ax.set_title("Total private rent bill across London")
+ax.set_axis_off()
+plt.savefig("rent_hexmap.png", dpi=200, bbox_inches="tight")
+plt.show()
+```
