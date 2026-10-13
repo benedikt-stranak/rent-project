@@ -8,8 +8,11 @@ import numpy as np
 from scipy.spatial import cKDTree
 
 import pandas as pd
+import geopandas as gpd
+import matplotlib.pyplot as plt
 
 from rent_project.config import (
+    DATA_DIRECTORY,
     PROCESSED_DIRECTORY,
     OUTPUT_DIRECTORY,
 )
@@ -75,42 +78,36 @@ Maps
 Go through the code below
 
 ```{python}
-import pandas as pd
-import geopandas as gpd
-import matplotlib.pyplot as plt
-
-HEX_PATH = "path/to/your/hex_grid.shp"  # <- your hex grid file
-
-# --- 1. Load all properties as points --------------------------------------
-df = pd.read_csv("properties.csv")
 points = gpd.GeoDataFrame(
-    df,
-    geometry=gpd.points_from_xy(df["x_coordinate"], df["y_coordinate"]),
-    crs="EPSG:27700",  # British National Grid
+    data,
+    geometry=gpd.points_from_xy(data["x_coordinate"], data["y_coordinate"]),
+    crs="EPSG:27700",
 )
+hexagons = gpd.read_file(DATA_DIRECTORY / "raw" / "spatial-boundaries" / "Hex350_grid_GLA" / "Hex350_grid_GLA.shp").to_crs("EPSG:27700")
 
-# --- 2. Load the hex grid (reprojected to BNG to match the points) ---------
-hexes = gpd.read_file(HEX_PATH).to_crs("EPSG:27700")
-
-# --- 3. Assign each property to a hexagon and aggregate --------------------
-joined = gpd.sjoin(points, hexes[["geometry"]], predicate="within")
+joined = gpd.sjoin(points, hexagons[["geometry"]], predicate="within")
 
 # Rent only counts towards the total for privately rented properties
-joined["private_rent"] = joined["est_rent_2021"].where(joined["private_rented_2021"], 0)
+joined["rent_2011"] = joined["est_rent_2011"].where(joined["private_rented_2011"], 0)
+joined["rent_2021"] = joined["est_rent_2021"].where(joined["private_rented_2021"], 0)
 
 stats = joined.groupby("index_right").agg(
-    n_properties=("private_rented_2021", "size"),
-    n_private_rented=("private_rented_2021", "sum"),
-    total_rent=("private_rent", "sum"),
+    n_properties=("uprn", "size"),
+    n_private_rented_2011=("private_rented_2011", "sum"),
+    n_private_rented_2021=("private_rented_2021", "sum"),
+    t_rent_2011=("rent_2011", "sum"),
+    t_rent_2021=("rent_2021", "sum"),
 )
-hexes = hexes.join(stats)  # hexagons with no properties get NaN
+stats["t_rent_2011"].sum() # 16854830064.9876
+stats["t_rent_2021"].sum() # 28258523916.6895
 
-print(f"Average properties per hexagon: {hexes['n_properties'].mean():.1f}")
+hexagons = hexagons.join(stats)  # hexagons with no properties get NaN
 
-# --- 4. Plot total rent ----------------------------------------------------
+print(f"Average properties per hexagon: {hexagons['n_properties'].mean():.1f}")
+
 fig, ax = plt.subplots(figsize=(10, 9))
-hexes.dropna(subset=["total_rent"]).plot(
-    column="total_rent",
+hexagons.dropna(subset=["t_rent_2021"]).plot(
+    column="t_rent_2021",
     cmap="viridis",
     legend=True,
     legend_kwds={"label": "Total estimated private rent, 2021 (£)", "shrink": 0.6},
@@ -118,6 +115,9 @@ hexes.dropna(subset=["total_rent"]).plot(
 )
 ax.set_title("Total private rent bill across London")
 ax.set_axis_off()
-plt.savefig("rent_hexmap.png", dpi=200, bbox_inches="tight")
 plt.show()
+
+
+# need bigger hexagons (1000 properties?)
+# need to figure out scale
 ```
