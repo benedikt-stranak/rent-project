@@ -4,12 +4,11 @@ format: html
 ---
 
 ```{python}
-import numpy as np
-from scipy.spatial import cKDTree
-
-import pandas as pd
+import cmcrameri.cm as cmc
 import geopandas as gpd
 import matplotlib.pyplot as plt
+import pandas as pd
+from matplotlib.ticker import FuncFormatter
 
 from rent_project.config import (
     DATA_DIRECTORY,
@@ -75,7 +74,7 @@ data[data["private_rented_2021"]]["est_rent_2024"].sum() # £33,975,017,640 paid
 
 Maps
 
-Go through the code below
+Data Prep
 
 ```{python}
 points = gpd.GeoDataFrame(
@@ -83,7 +82,13 @@ points = gpd.GeoDataFrame(
     geometry=gpd.points_from_xy(data["x_coordinate"], data["y_coordinate"]),
     crs="EPSG:27700",
 )
-hexagons = gpd.read_file(DATA_DIRECTORY / "raw" / "spatial-boundaries" / "Hex350_grid_GLA" / "Hex350_grid_GLA.shp").to_crs("EPSG:27700")
+boroughs = gpd.read_file(
+    DATA_DIRECTORY / "raw" / "spatial-boundaries" / "london-boroughs" / "london-boroughs-clipped.gpkg"
+    ).to_crs("EPSG:27700")
+london = boroughs.union_all()
+hexagons = gpd.read_file(
+    DATA_DIRECTORY / "raw" / "spatial-boundaries" / "hex-grid-600m" / "hex-grid-600.shp"
+    ).to_crs("EPSG:27700")
 
 joined = gpd.sjoin(points, hexagons[["geometry"]], predicate="within")
 
@@ -98,26 +103,144 @@ stats = joined.groupby("index_right").agg(
     t_rent_2011=("rent_2011", "sum"),
     t_rent_2021=("rent_2021", "sum"),
 )
-stats["t_rent_2011"].sum() # 16854830064.9876
-stats["t_rent_2021"].sum() # 28258523916.6895
-
+stats["t_rent_change"] = (stats["t_rent_2021"] / stats["t_rent_2011"] - 1) * 100
 hexagons = hexagons.join(stats)  # hexagons with no properties get NaN
+hexagons = hexagons.clip(london, keep_geom_type=True)
 
-print(f"Average properties per hexagon: {hexagons['n_properties'].mean():.1f}")
+```
 
-fig, ax = plt.subplots(figsize=(10, 9))
-hexagons.dropna(subset=["t_rent_2021"]).plot(
-    column="t_rent_2021",
-    cmap="viridis",
-    legend=True,
-    legend_kwds={"label": "Total estimated private rent, 2021 (£)", "shrink": 0.6},
-    ax=ax,
-)
-ax.set_title("Total private rent bill across London")
-ax.set_axis_off()
+```{python}
+# 350m: 329.3637446403049 properties per hexagon on average
+# 600m: 864.3466583385384
+hexagons['n_properties'].mean()
+
+stats["t_rent_2011"].sum() # 16.9bn
+plt.figure()
+stats["t_rent_2011"].hist(bins=50)
 plt.show()
 
+stats["t_rent_2021"].sum() # 28.3bn
+plt.figure()
+stats["t_rent_2021"].hist(bins=50)
+plt.show()
 
-# need bigger hexagons (1000 properties?)
-# need to figure out scale
 ```
+
+What maps do I want?
+- Change in the number of private rented properties
+- Change in average rent
+
+2021 rent totals
+
+```{python}
+rent = hexagons["t_rent_2021"].dropna()
+# vmax = rent.quantile(0.95)
+vmax = 30000000
+money = FuncFormatter(lambda x, _: f"£{x / 1e6:g}m")
+
+fig, ax = plt.subplots(figsize=(10, 9))
+
+# map
+hexagons.drop(rent.index).plot(ax=ax, color="#e6e6e6", linewidth=0, zorder=0)
+hexagons.loc[rent.index].plot(
+    column="t_rent_2021",
+    cmap=cmc.batlow,
+    vmin=0,
+    vmax=vmax,
+    legend=True,
+    legend_kwds={
+        "shrink": 0.6,
+        "extend": "max",
+        "format": money,
+    },
+    ax=ax,
+)
+
+# boroughs
+boroughs.boundary.plot(
+    ax=ax,
+    color="white",
+    linewidth=0.6,
+    alpha=0.8,
+    zorder=3,
+)
+
+ax.set_axis_off()
+plt.tight_layout()
+fig.canvas.draw()
+
+# histogram
+cbar_pos = fig.axes[1].get_position()
+width = 0.12
+height = cbar_pos.height * 0.3
+gap = 0.02
+
+hist_ax = fig.add_axes([cbar_pos.x0 - gap - width, cbar_pos.y0, width, height])
+n, bins, patches = hist_ax.hist(rent.clip(upper=vmax), bins=15)
+
+for patch in patches:
+    patch.set_facecolor(cmc.batlow((patch.get_x() + patch.get_width() / 2) / vmax))
+
+hist_ax.set_axis_off()
+
+fig.savefig(OUTPUT_DIRECTORY / "total-rent-2021.png", dpi=300, bbox_inches="tight", facecolor="white")
+plt.show()
+```
+
+2021 to 2021 total rent percentage change
+
+```{python}
+change = hexagons["t_rent_change"].dropna()
+vmin = 30
+vmax = 210
+pct = FuncFormatter(lambda x, _: f"{x:+g}%")
+
+fig, ax = plt.subplots(figsize=(10, 9))
+
+# map
+hexagons.drop(change.index).plot(ax=ax, color="#e6e6e6", linewidth=0, zorder=0)
+hexagons.loc[change.index].plot(
+    column="t_rent_change",
+    cmap=cmc.batlow,
+    vmin=vmin,
+    vmax=vmax,
+    legend=True,
+    legend_kwds={
+        "shrink": 0.6,
+        "extend": "max",
+        "format": pct,
+    },
+    ax=ax,
+)
+
+# boroughs
+boroughs.boundary.plot(
+    ax=ax,
+    color="white",
+    linewidth=0.6,
+    alpha=0.8,
+    zorder=3,
+)
+
+ax.set_axis_off()
+plt.tight_layout()
+fig.canvas.draw()
+
+# histogram
+cbar_pos = fig.axes[1].get_position()
+width = 0.12
+height = cbar_pos.height * 0.3
+gap = 0.02
+
+hist_ax = fig.add_axes([cbar_pos.x0 - gap - width, cbar_pos.y0, width, height])
+n, bins, patches = hist_ax.hist(change.clip(upper=vmax), bins=15)
+
+for patch in patches:
+    patch.set_facecolor(cmc.batlow((patch.get_x() + patch.get_width() / 2) / vmax))
+
+hist_ax.set_axis_off()
+
+fig.savefig(OUTPUT_DIRECTORY / "total-rent-change.png", dpi=300, bbox_inches="tight", facecolor="white")
+plt.show()
+```
+

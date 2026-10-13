@@ -8,8 +8,10 @@ authors = [
 ]
 requires-python = ">=3.12"
 dependencies = [
+    "cmcrameri>=1.10",
     "duckdb>=1.5.5",
     "geopandas>=1.2.0",
+    "mapclassify>=2.11.0",
     "matplotlib>=3.11.2",
     "pandas>=3.0.5",
     "pyarrow>=25.0.1",
