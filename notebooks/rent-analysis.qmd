@@ -12,8 +12,8 @@ from matplotlib.ticker import FuncFormatter
 
 from rent_project.config import (
     DATA_DIRECTORY,
-    PROCESSED_DIRECTORY,
     OUTPUT_DIRECTORY,
+    PROCESSED_DIRECTORY,
 )
 ```
 
