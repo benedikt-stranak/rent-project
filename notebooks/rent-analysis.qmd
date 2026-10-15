@@ -22,7 +22,7 @@ Loading data
 data = pd.read_parquet(PROCESSED_DIRECTORY / "greater_london_rents_dataset.parquet")
 ```
 
-Checking data is ok
+# Checking data is ok
 
 ```{python}
 # overall size
@@ -55,7 +55,7 @@ data.groupby("est_rent_imputed")["est_rent_2021"].agg(["mean", "count"])
 data.groupby("est_rent_imputed")["est_rent_2024"].agg(["mean", "count"])
 ```
 
-Totals
+# Totals
 
 ```{python}
 n_2011 = len(data[data["private_rented_2011"]]) # 878,151 private rented in 2011
@@ -72,9 +72,9 @@ data[data["private_rented_2021"]]["est_rent_2024"].sum() # £33,975,017,640 paid
 
 ```
 
-Maps
+# Maps
 
-Data Prep
+## Data Prep
 
 ```{python}
 points = gpd.GeoDataFrame(
@@ -103,11 +103,23 @@ stats = joined.groupby("index_right").agg(
     t_rent_2011=("rent_2011", "sum"),
     t_rent_2021=("rent_2021", "sum"),
 )
-stats["t_rent_change"] = (stats["t_rent_2021"] / stats["t_rent_2011"] - 1) * 100
+# average rents
+stats["a_rent_2011"] = stats["t_rent_2011"] / stats["n_private_rented_2011"]
+stats["a_rent_2021"] = stats["t_rent_2021"] / stats["n_private_rented_2021"]
+# change over time
+stats["n_private_rented_change_relative"] = stats["n_private_rented_2021"] / stats["n_private_rented_2011"]
+stats["n_private_rented_change_absolute"] = stats["n_private_rented_2021"] - stats["n_private_rented_2011"]
+stats["t_rent_change_relative"] = (stats["t_rent_2021"] / stats["t_rent_2011"] - 1)*100
+stats["t_rent_change_absolute"] = stats["t_rent_2021"] - stats["t_rent_2011"]
+stats["a_rent_change_relative"] = (stats["a_rent_2021"] / stats["a_rent_2011"] - 1)*100
+stats["a_rent_change_absolute"] = stats["a_rent_2021"] - stats["a_rent_2011"]
+
 hexagons = hexagons.join(stats)  # hexagons with no properties get NaN
 hexagons = hexagons.clip(london, keep_geom_type=True)
 
 ```
+
+## Checks and distributions
 
 ```{python}
 # 350m: 329.3637446403049 properties per hexagon on average
@@ -116,131 +128,167 @@ hexagons['n_properties'].mean()
 
 stats["t_rent_2011"].sum() # 16.9bn
 plt.figure()
-stats["t_rent_2011"].hist(bins=50)
+stats["t_rent_2011"].hist(bins=30)
 plt.show()
 
 stats["t_rent_2021"].sum() # 28.3bn
 plt.figure()
-stats["t_rent_2021"].hist(bins=50)
+stats["t_rent_2021"].hist(bins=30)
 plt.show()
 
 ```
 
-What maps do I want?
-- Change in the number of private rented properties
-- Change in average rent
-
-2021 rent totals
+# Map function
 
 ```{python}
-rent = hexagons["t_rent_2021"].dropna()
-# vmax = rent.quantile(0.95)
-vmax = 30000000
-money = FuncFormatter(lambda x, _: f"£{x / 1e6:g}m")
-
-fig, ax = plt.subplots(figsize=(10, 9))
-
-# map
-hexagons.drop(rent.index).plot(ax=ax, color="#e6e6e6", linewidth=0, zorder=0)
-hexagons.loc[rent.index].plot(
-    column="t_rent_2021",
+def plot_hex_map(
+    column,
+    formatter,
+    vmin=None,
+    vmax=None,
+    extend="both",
+    filename=None,
     cmap=cmc.batlow,
-    vmin=0,
-    vmax=vmax,
-    legend=True,
-    legend_kwds={
-        "shrink": 0.6,
-        "extend": "max",
-        "format": money,
-    },
-    ax=ax,
-)
+):
+    """Plot a hexagon choropleth with borough outlines and a colour-matched histogram.
 
-# boroughs
-boroughs.boundary.plot(
-    ax=ax,
-    color="white",
-    linewidth=0.6,
-    alpha=0.8,
-    zorder=3,
-)
+    vmin / vmax default to the 5th / 95th percentile of the column.
+    If filename is given, the figure is saved to OUTPUT_DIRECTORY.
+    """
+    data = hexagons[column].dropna()
+    if vmin is None:
+        vmin = data.quantile(0.05)
+    if vmax is None:
+        vmax = data.quantile(0.95)
 
-ax.set_axis_off()
-plt.tight_layout()
-fig.canvas.draw()
+    fig, ax = plt.subplots(figsize=(10, 9))
 
-# histogram
-cbar_pos = fig.axes[1].get_position()
-width = 0.12
-height = cbar_pos.height * 0.3
-gap = 0.02
+    # map
+    hexagons.drop(data.index).plot(ax=ax, color="#e6e6e6", linewidth=0, zorder=0)
+    hexagons.loc[data.index].plot(
+        column=column,
+        cmap=cmap,
+        vmin=vmin,
+        vmax=vmax,
+        legend=True,
+        legend_kwds={"shrink": 0.6, "extend": extend, "format": formatter},
+        ax=ax,
+    )
 
-hist_ax = fig.add_axes([cbar_pos.x0 - gap - width, cbar_pos.y0, width, height])
-n, bins, patches = hist_ax.hist(rent.clip(upper=vmax), bins=15)
+    # boroughs
+    boroughs.boundary.plot(ax=ax, color="white", linewidth=0.6, alpha=0.8, zorder=3)
 
-for patch in patches:
-    patch.set_facecolor(cmc.batlow((patch.get_x() + patch.get_width() / 2) / vmax))
+    ax.set_axis_off()
+    plt.tight_layout()
+    fig.canvas.draw()
 
-hist_ax.set_axis_off()
+    # histogram
+    cbar_pos = fig.axes[1].get_position()
+    width = 0.12
+    height = cbar_pos.height * 0.3
+    gap = 0.02
 
-fig.savefig(OUTPUT_DIRECTORY / "total-rent-2021.png", dpi=300, bbox_inches="tight", facecolor="white")
-plt.show()
+    hist_ax = fig.add_axes([cbar_pos.x0 - gap - width, cbar_pos.y0, width, height])
+    n, bins, patches = hist_ax.hist(data.clip(lower=vmin, upper=vmax), bins=15)
+
+    for patch in patches:
+        mid = patch.get_x() + patch.get_width() / 2
+        patch.set_facecolor(cmap((mid - vmin) / (vmax - vmin)))
+
+    hist_ax.set_axis_off()
+
+    if filename:
+        fig.savefig(OUTPUT_DIRECTORY / filename, dpi=300, bbox_inches="tight", facecolor="white")
+    plt.show()
 ```
 
-2021 to 2021 total rent percentage change
+# Plotting and saving maps
 
 ```{python}
-change = hexagons["t_rent_change"].dropna()
-vmin = 30
-vmax = 210
-pct = FuncFormatter(lambda x, _: f"{x:+g}%")
 
-fig, ax = plt.subplots(figsize=(10, 9))
+mils = FuncFormatter(lambda x, _: f"£{x / 1e6:g}m")
+mils_change = FuncFormatter(lambda x, _: f"{'-' if x < 0 else '+'}£{abs(x) / 1e6:g}m")
+pct_change = FuncFormatter(lambda x, _: f"{x:+g}%")
+properties = FuncFormatter(lambda x, _: f"{x:+,.0f}")
+rent = FuncFormatter(lambda x, _: f"£{x:+,.0f}")
 
-# map
-hexagons.drop(change.index).plot(ax=ax, color="#e6e6e6", linewidth=0, zorder=0)
-hexagons.loc[change.index].plot(
-    column="t_rent_change",
-    cmap=cmc.batlow,
-    vmin=vmin,
-    vmax=vmax,
-    legend=True,
-    legend_kwds={
-        "shrink": 0.6,
-        "extend": "max",
-        "format": pct,
-    },
-    ax=ax,
+# 2011 and 2021 totals
+rent_vmax = max(hexagons[c].dropna().quantile(0.95) for c in ["t_rent_2011", "t_rent_2021"])
+
+plot_hex_map(
+    "t_rent_2011",
+    mils,
+    vmin=0, vmax=rent_vmax, extend="max",
+    filename="01_total-rent-2011.png",
+)
+plot_hex_map(
+    "t_rent_2021",
+    mils,
+    vmin=0, vmax=rent_vmax, extend="max",
+    filename="02_total-rent-2021.png",
 )
 
-# boroughs
-boroughs.boundary.plot(
-    ax=ax,
-    color="white",
-    linewidth=0.6,
-    alpha=0.8,
-    zorder=3,
+# change in rent totals (absolute)
+plot_hex_map(
+    "t_rent_change_absolute",
+    mils_change,
+    filename="03_total-rent-change-absolute.png",
 )
 
-ax.set_axis_off()
-plt.tight_layout()
-fig.canvas.draw()
+# change in rent totals (relative)
+plot_hex_map(
+    "t_rent_change_relative",
+    pct_change,
+    filename="04_total-rent-change-relative.png"
+)
 
-# histogram
-cbar_pos = fig.axes[1].get_position()
-width = 0.12
-height = cbar_pos.height * 0.3
-gap = 0.02
+# change in number of private rented properties (absolute)
+plot_hex_map(
+    "n_private_rented_change_absolute",
+    properties,
+    filename="05_number-private-rented-change-absolute.png",
+)
 
-hist_ax = fig.add_axes([cbar_pos.x0 - gap - width, cbar_pos.y0, width, height])
-n, bins, patches = hist_ax.hist(change.clip(upper=vmax), bins=15)
+# change in number of private rented properties (relative)
+plot_hex_map(
+    "n_private_rented_change_relative",
+    pct_change,
+    filename="06_number-private-rented-change-relative.png",
+)
 
-for patch in patches:
-    patch.set_facecolor(cmc.batlow((patch.get_x() + patch.get_width() / 2) / vmax))
+# change in average rent (absolute)
+plot_hex_map(
+    "a_rent_change_absolute",
+    rent,
+    filename="07_average-rent-change-absolute.png",
+)
 
-hist_ax.set_axis_off()
+# change in average rent (relative)
+plot_hex_map(
+    "a_rent_change_relative",
+    pct_change,
+    filename="08_average-rent-change-relative.png",
+)
 
-fig.savefig(OUTPUT_DIRECTORY / "total-rent-change.png", dpi=300, bbox_inches="tight", facecolor="white")
-plt.show()
 ```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
