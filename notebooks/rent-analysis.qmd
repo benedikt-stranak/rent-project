@@ -95,6 +95,9 @@ boroughs = gpd.read_file(
     DATA_DIRECTORY / "raw" / "spatial-boundaries" / "london-boroughs" / "london-boroughs-clipped.gpkg"
     ).to_crs("EPSG:27700")
 london = boroughs.union_all()
+
+
+
 hexagons = gpd.read_file(
     DATA_DIRECTORY / "raw" / "spatial-boundaries" / "hex-grid-1075m" / "hex-grid-1075.shp"
     ).to_crs("EPSG:27700")
@@ -242,42 +245,42 @@ plot_hex_map(
 plot_hex_map(
     "t_rent_change_absolute",
     mils_change,
-    filename="03_total-rent-change-absolute.png",
+#    filename="03_total-rent-change-absolute.png",
 )
 
 # change in rent totals (relative)
 plot_hex_map(
     "t_rent_change_relative",
     pct_change,
-    filename="04_total-rent-change-relative.png"
+#    filename="04_total-rent-change-relative.png"
 )
 
 # change in number of private rented properties (absolute)
 plot_hex_map(
     "n_private_rented_change_absolute",
     properties,
-    filename="05_number-private-rented-change-absolute.png",
+#    filename="05_number-private-rented-change-absolute.png",
 )
 
 # change in number of private rented properties (relative)
 plot_hex_map(
     "n_private_rented_change_relative",
     pct_change,
-    filename="06_number-private-rented-change-relative.png",
+#    filename="06_number-private-rented-change-relative.png",
 )
 
 # change in average rent (absolute)
 plot_hex_map(
     "a_rent_change_absolute",
     rent,
-    filename="07_average-rent-change-absolute.png",
+#    filename="07_average-rent-change-absolute.png",
 )
 
 # change in average rent (relative)
 plot_hex_map(
     "a_rent_change_relative",
     pct_change,
-    filename="08_average-rent-change-relative.png",
+#    filename="08_average-rent-change-relative.png",
 )
 
 ```
@@ -285,36 +288,77 @@ plot_hex_map(
 # Estate regen
 
 ```{python}
-# to-do: number of residential in 2021 to calculate
+# to-do:
+# number of residential in 2021 to calculate
 # share private rented
 # average rent on these estates
-# also need the names of the estates
 
 estates = gpd.read_file(
     DATA_DIRECTORY / "my-gis" / "my-layers" / "large-regenerations.shp"
     ).to_crs("EPSG:27700")
-joined_estates = gpd.sjoin(points, estates[["geometry"]], predicate="within")
+joined_estates = gpd.sjoin(points, estates[["name","geometry"]], predicate="within")
 
 # Rent only counts towards the total for privately rented properties
 joined_estates["rent_2021"] = joined_estates["est_rent_2021"].where(joined_estates["private_rented_2021"], 0)
 
-stats_estates = joined_estates.groupby("index_right").agg(
+stats_estates = joined_estates.groupby("name").agg(
     n_properties=("uprn", "size"),
+    n_residential_2021=("is_residential_2021", "sum"),
     n_private_rented_2021=("private_rented_2021", "sum"),
     t_rent_2021=("rent_2021", "sum"),
 )
-s
+stats_estates["pct_private_rented_2021"] = stats_estates["n_private_rented_2021"] / stats_estates["n_residential_2021"]
+stats_estates["a_rent_2021"] = stats_estates["t_rent_2021"] / stats_estates["n_private_rented_2021"]
+
+stats_estates["t_rent_2021"]["Ocean Estate"]   # £ 25,475,358
+stats_estates["t_rent_2021"]["Ferrier Estate"] # £ 14,928,120
+stats_estates["t_rent_2021"]["Heygate Estate"] # £ 32,221,452
+stats_estates["t_rent_2021"]["Five Estates"]   # £ 18,061,950
+stats_estates["t_rent_2021"].sum() # 90,686,882
+
 ```
 
 # Crossrail
 
 ```{python}
+# points
+crossrail = gpd.read_file(
+    DATA_DIRECTORY / "my-gis" / "my-layers" / "crossrail-distance-rings-no-overlaps-04.shp"
+    ).to_crs("EPSG:27700")
+joined_crossrail = gpd.sjoin(points, crossrail[["label","geometry"]], predicate="within")
+
+rent_cols = joined_crossrail.filter(regex=r"^listed_rent_\d{4}$").columns
+
+stats_crossrail = joined_crossrail.groupby("label")[rent_cols].mean()
+stats_crossrail.columns = stats_crossrail.columns.str[-4:].astype(int)  # "listed_rent_2014" -> 2014
+
+indexed = stats_crossrail
+indexed = stats_crossrail.div(stats_crossrail[2014], axis=0)
+
+ax = indexed.T.plot(marker="o", figsize=(9, 5))
+ax.axhline(1, color="grey", linewidth=0.8, linestyle="--")
+ax.set_xlabel("Year")
+ax.set_ylabel("Average listed rent (2014 = 1)")
+ax.set_title("Rental listing value by ring, indexed to 2014")
+ax.legend(title="Ring")
+plt.tight_layout()
+plt.show()
 
 ```
 
 # Regression
 
 ```{python}
+# Y:
+# change in share of private rented (LSOA)
+# change in average rent (LSOA)
+# change in total rent (LSOA)
+
+# X:
+# non White 2011
+# working class 2011
+# local authority ?
+
 
 ```
 
