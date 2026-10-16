@@ -17,6 +17,15 @@ from rent_project.config import (
 )
 ```
 
+Key bits if analysis:
+
+- Totals
+- Maps of totals and change
+- Estate regen estimated totals (4 large regenerations)
+- Average listings in proximity of crossrail stations
+- Regress rent increases on Census characteristics (race, class as a minimum)
+
+
 Loading data
 ```{python}
 data = pd.read_parquet(PROCESSED_DIRECTORY / "greater_london_rents_dataset.parquet")
@@ -87,7 +96,7 @@ boroughs = gpd.read_file(
     ).to_crs("EPSG:27700")
 london = boroughs.union_all()
 hexagons = gpd.read_file(
-    DATA_DIRECTORY / "raw" / "spatial-boundaries" / "hex-grid-600m" / "hex-grid-600.shp"
+    DATA_DIRECTORY / "raw" / "spatial-boundaries" / "hex-grid-1075m" / "hex-grid-1075.shp"
     ).to_crs("EPSG:27700")
 
 joined = gpd.sjoin(points, hexagons[["geometry"]], predicate="within")
@@ -107,7 +116,7 @@ stats = joined.groupby("index_right").agg(
 stats["a_rent_2011"] = stats["t_rent_2011"] / stats["n_private_rented_2011"]
 stats["a_rent_2021"] = stats["t_rent_2021"] / stats["n_private_rented_2021"]
 # change over time
-stats["n_private_rented_change_relative"] = stats["n_private_rented_2021"] / stats["n_private_rented_2011"]
+stats["n_private_rented_change_relative"] = (stats["n_private_rented_2021"] / stats["n_private_rented_2011"] - 1)*100
 stats["n_private_rented_change_absolute"] = stats["n_private_rented_2021"] - stats["n_private_rented_2011"]
 stats["t_rent_change_relative"] = (stats["t_rent_2021"] / stats["t_rent_2011"] - 1)*100
 stats["t_rent_change_absolute"] = stats["t_rent_2021"] - stats["t_rent_2011"]
@@ -124,6 +133,7 @@ hexagons = hexagons.clip(london, keep_geom_type=True)
 ```{python}
 # 350m: 329.3637446403049 properties per hexagon on average
 # 600m: 864.3466583385384
+# 1075m (15m2): 2536.0134392180817
 hexagons['n_properties'].mean()
 
 stats["t_rent_2011"].sum() # 16.9bn
@@ -272,6 +282,41 @@ plot_hex_map(
 
 ```
 
+# Estate regen
+
+```{python}
+# to-do: number of residential in 2021 to calculate
+# share private rented
+# average rent on these estates
+# also need the names of the estates
+
+estates = gpd.read_file(
+    DATA_DIRECTORY / "my-gis" / "my-layers" / "large-regenerations.shp"
+    ).to_crs("EPSG:27700")
+joined_estates = gpd.sjoin(points, estates[["geometry"]], predicate="within")
+
+# Rent only counts towards the total for privately rented properties
+joined_estates["rent_2021"] = joined_estates["est_rent_2021"].where(joined_estates["private_rented_2021"], 0)
+
+stats_estates = joined_estates.groupby("index_right").agg(
+    n_properties=("uprn", "size"),
+    n_private_rented_2021=("private_rented_2021", "sum"),
+    t_rent_2021=("rent_2021", "sum"),
+)
+s
+```
+
+# Crossrail
+
+```{python}
+
+```
+
+# Regression
+
+```{python}
+
+```
 
 
 
