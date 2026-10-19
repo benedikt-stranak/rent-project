@@ -154,8 +154,7 @@ plt.show()
 
 # Test HASP to AddressBase Links
 
-
-Try UK Address Matcher
+THE MATCHING CODE ITSELF
 
 ```{python}
 ADDRESS_COLUMNS = ['address_1', 'address_2', 'address_3', 'address_4', 'address_5', 'address_6']
@@ -243,7 +242,7 @@ len(spine_hasp[~spine_hasp["hasp_property_id"].isna()]) / len(spine_hasp)
 # 16% properties has hasp_property_id
 ```
 
-INVESTIGATIONS
+INITIAL INVESTIGATIONS
 
 ```{python}
 
@@ -290,6 +289,48 @@ matched_probabilistic_sample.to_csv(ADDRESSBASE_DIRECTORY_INTERIM / "matched_has
 ```
 
 # Compare allocated PRS dwelling totals to ONS (by local authority)
+
+```{python}
+
+```
+
+# What proportion of (allocated) PRS dwelling totals has listings (in 2021, by LSOA21, distribution)
+
+```{python}
+data = pd.read_parquet(PROCESSED_DIRECTORY / "greater_london_rents_dataset.parquet")
+
+rented_2021 = data[
+    (data["is_residential_2021"] == True)
+    & (data["state_2021"].eq("2") | data["state_2021"].isna())
+    & (data["private_rented_2021"] == True)
+]
+len(rented_2021) # 1,174,022
+rented_2021["est_rent_imputed"].sum() # 553,926
+1 - (rented_2021["est_rent_imputed"].sum() / len(rented_2021)) # 0.528 has a listing
+
+
+# by LSOA
+by_lsoa = (
+    rented_2021
+    .groupby("lsoa21cd")[["private_rented_2021", "est_rent_imputed"]]
+    .sum()
+)
+by_lsoa = by_lsoa[by_lsoa["private_rented_2021"] > 0]
+by_lsoa["prop_w_listing"] = 1 - (by_lsoa["est_rent_imputed"] / by_lsoa["private_rented_2021"])
+
+fig, ax = plt.subplots(figsize=(8, 5))
+ax.hist(by_lsoa["prop_w_listing"], bins=50, edgecolor="white")
+ax.set_xlabel("Proportion of private rented properties with a listing")
+ax.set_ylabel("Number of LSOAs")
+ax.set_title("Proportion of private rented properties with a listing")
+ax.legend()
+plt.tight_layout()
+plt.show()
+
+by_lsoa["prop_w_listing"].mean() # 0.567
+by_lsoa["prop_w_listing"].median() # 0.565
+
+```
 
 # Check Zoopla data for outliers
 
