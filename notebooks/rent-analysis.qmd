@@ -7,6 +7,7 @@ format: html
 import cmcrameri.cm as cmc
 import geopandas as gpd
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
 from matplotlib.ticker import FuncFormatter
 
@@ -15,23 +16,107 @@ from rent_project.config import (
     OUTPUT_DIRECTORY,
     PROCESSED_DIRECTORY,
 )
+
 ```
 
 Key bits if analysis:
 
-- Totals
+- Total rent bill
 - Maps of totals and change
 - Estate regen estimated totals (4 large regenerations)
 - Average listings in proximity of crossrail stations
 - Regress rent increases on Census characteristics (race, class as a minimum)
 
+# Regional totals time series (ONS/MHCLG data)
+
+```{python}
+df = pd.DataFrame({
+    "year": [2006, 2011, 2016, 2021, 2025],
+    "prs_dwellings": [661779, 872298, 1014230, 1074736, 1121903],
+    "rent_nominal": [1216, 1367, 1655, 1735, 2235],
+    "cpi_index": [0.5773, 0.6749, 0.7276, 0.8064, 1.0000],
+    "hourly_pay": [13.88, 15.84, 16.43, 19.3, 23.69],
+})
+
+PAY_2025 = df["hourly_pay"].iloc[-1]  # £23.69 an hour
+
+# Average monthly rent, measured three ways
+df["rent_2025"] = df["rent_nominal"] / df["cpi_index"]        # £ at 2025 prices
+df["rent_hours"] = df["rent_nominal"] / df["hourly_pay"]      # hours of median-pay work per month's rent
+df["rent_hours_scaled"] = df["rent_hours"] * PAY_2025         # hours translated to 2025 pay (for plotting)
+
+# Total annual rent bill = homes x monthly rent x 12
+df["total_nominal"] = df["prs_dwellings"] * df["rent_nominal"] * 12
+df["total_2025"] = df["prs_dwellings"] * df["rent_2025"] * 12
+df["total_hours"] = df["prs_dwellings"] * df["rent_hours"] * 12
+
+d = df.set_index("year")
+x = d["prs_dwellings"]
+
+fig, ax = plt.subplots(figsize=(10, 7))
+ax.set_xlim(540000, 1220000)
+ax.set_ylim(1100, 2600)
+
+# Isolines
+xs = np.linspace(540000, 1220000, 200)
+for bn in [10, 15, 20, 25, 30, 35]:
+    ax.plot(xs, bn * 1e9 / (12 * xs), color="0.8", lw=0.8, ls="--", zorder=0)
+    x_lab = max(bn * 1e9 / (12 * 2550), 540000)
+    ax.text(x_lab, bn * 1e9 / (12 * x_lab), f" £{bn}bn/yr", color="0.55", fontsize=8, va="top")
+
+# Lines and dots
+for col, name, color, offset in [("rent_nominal", "£ nominal", "C0", 0),
+                            ("rent_2025", "£ 2025 prices", "C1", 10),
+                            ("rent_hours_scaled", "work hours\n(median pay)", "C2", -10)]:
+    ax.plot(x, d[col], color=color, lw=2.5, solid_joinstyle="round", solid_capstyle="round")
+    ax.scatter(x, d[col], color=color, s=40, edgecolor="white", zorder=3)
+    ax.annotate(name, (x[2006], d.loc[2006, col]), xytext=(-50, offset), textcoords="offset points", ha="center", va="center", color=color)
+
+# Label displacement from its own dot, per year and series: (dx, dy) in points; (0, 0) = on the dot
+LABEL_YEARS = {
+    2006: {"rent_nominal": (10, -20), "rent_2025": (10, 20), "rent_hours_scaled": (10, -20)},
+    2011: {"rent_nominal": (0, -20), "rent_2025": (0, -20), "rent_hours_scaled": (-10, 20)},
+    2016: {"rent_nominal": (0, -20), "rent_2025": (0, -20), "rent_hours_scaled": (0, 20)},
+    2021: {"rent_nominal": (0, -20), "rent_2025": (0, 35), "rent_hours_scaled": (0, -20)},
+    2025: {"rent_nominal": (30, -30), "rent_2025": (30, 30), "rent_hours_scaled": (30, 0)},
+}
+
+for year, offset in LABEL_YEARS.items():
+    r = d.loc[year]
+    ax.annotate(f"{year}\n£{r['total_nominal'] / 1e9:.1f}bn", (x[year], r["rent_nominal"]), xytext=offset["rent_nominal"],
+                textcoords="offset points", ha="center", va="center", fontsize=9, color="C0")
+    ax.annotate(f"{year}\n£{r['total_2025'] / 1e9:.1f}bn", (x[year], r["rent_2025"]), xytext=offset["rent_2025"],
+                textcoords="offset points", ha="center", va="center", fontsize=9, color="C1")
+    ax.annotate(f"{year}\n{r['total_hours'] / 1e9:.2f}bn hrs", (x[year], r["rent_hours_scaled"]), xytext=offset["rent_hours_scaled"],
+                textcoords="offset points", ha="center", va="center", fontsize=9, color="C2")
+
+# X axis
+ax.xaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v / 1e6:.1f}m"))
+ax.set_xlabel("Private rented dwellings in London")
+
+# Left axis
+ax.yaxis.set_major_formatter(FuncFormatter(lambda v, _: f"£{v:,.0f}"))
+ax.set_ylabel("Average monthly rent")
+
+# Right axis: the green line in its own unit
+sec = ax.secondary_yaxis("right", functions=(lambda v: v / PAY_2025, lambda v: v * PAY_2025))
+sec.set_ylabel("Hours of median-pay work per month's rent", color="C2")
+
+fig.savefig(OUTPUT_DIRECTORY / "total_rent_bill", dpi=300, bbox_inches="tight", facecolor="white")
+plt.show()
+
+```
+
+
+
+
+# Checking data is ok
 
 Loading data
 ```{python}
 data = pd.read_parquet(PROCESSED_DIRECTORY / "greater_london_rents_dataset.parquet")
 ```
 
-# Checking data is ok
 
 ```{python}
 # overall size
