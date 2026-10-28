@@ -9,8 +9,8 @@ import geopandas as gpd
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from matplotlib.colors import ListedColormap, Normalize, PowerNorm, TwoSlopeNorm
 from matplotlib.ticker import FuncFormatter
-from matplotlib.colors import Normalize, ListedColormap, PowerNorm, TwoSlopeNorm
 
 from rent_project.config import (
     DATA_DIRECTORY,
@@ -58,20 +58,20 @@ d = df.set_index("year")
 x = d["prs_dwellings"]
 
 fig, ax = plt.subplots(figsize=(10, 7))
-ax.set_xlim(540000, 1220000)
-ax.set_ylim(1100, 2600)
+ax.set_xlim(520000, 1220000)
+ax.set_ylim(1000, 2600)
 
 # Isolines
-xs = np.linspace(540000, 1220000, 200)
+xs = np.linspace(520000, 1220000, 200)
 for bn in [10, 15, 20, 25, 30, 35]:
-    ax.plot(xs, bn * 1e9 / (12 * xs), color="0.8", lw=0.8, ls="--", zorder=0)
-    x_lab = max(bn * 1e9 / (12 * 2550), 540000)
+    ax.plot(xs, bn * 1e9 / (12 * xs), color="0", lw=0.5, ls="--", zorder=0)
+    x_lab = max(bn * 1e9 / (12 * 2550), 520000)
     ax.text(x_lab, bn * 1e9 / (12 * x_lab), f" £{bn}bn/yr", color="0.55", fontsize=8, va="top")
 
 # Lines and dots
-for col, name, color, offset in [("rent_nominal", "£ nominal", "C0", 0),
-                            ("rent_2025", "£ 2025 prices", "C1", 10),
-                            ("rent_hours_scaled", "work hours\n(median pay)", "C2", -10)]:
+for col, name, color, offset in [("rent_nominal", "£ nominal", "#EF056F", 0),
+                            ("rent_2025", "£ 2025 prices", "#021F59", 10),
+                            ("rent_hours_scaled", "work hours\n(median pay)", "#FE9C15", -10)]:
     ax.plot(x, d[col], color=color, lw=2.5, solid_joinstyle="round", solid_capstyle="round")
     ax.scatter(x, d[col], color=color, s=40, edgecolor="white", zorder=3)
     ax.annotate(name, (x[2006], d.loc[2006, col]), xytext=(-50, offset), textcoords="offset points", ha="center", va="center", color=color)
