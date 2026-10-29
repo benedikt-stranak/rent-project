@@ -378,9 +378,7 @@ def step_add_rents(is_test):
 
     n_targets = spine["est_rent_n_donors"].notna().sum()
     n_no_donors = (spine["est_rent_n_donors"] == 0).sum()
-    print(
-        f"{n_no_donors:,} of {n_targets:,} left missing (no donor within 1 km)"
-    )
+    print(f"{n_no_donors:,} of {n_targets:,} left missing (no donor within 1 km)")
 
     print(f"Writing spine ({len(spine):,} rows) to {output_path.name}")
     spine.to_parquet(output_path, index=False)

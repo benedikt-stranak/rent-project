@@ -177,7 +177,7 @@ def add_estimated_rents(spine, target_years):
     tree = cKDTree(xy[is_donor])
     dist, neighbours = tree.query(xy[is_target], k=8, distance_upper_bound=1000)
     # (n_targets, k); True where a neighbour slot holds a real donor
-    found = np.isfinite(dist)  
+    found = np.isfinite(dist)
 
     # Targets with no donors give all-NaN rows; nanmean returns NaN for them (as intended) but warns
     with warnings.catch_warnings():
@@ -186,7 +186,9 @@ def add_estimated_rents(spine, target_years):
         # Mean rent of the neighbours, for each year
         for col in rent_cols:
             donor_rents = spine.loc[is_donor, col].to_numpy(dtype=float)
-            donor_rents = np.append(donor_rents, np.nan)  # padding for missing neighbours
+            donor_rents = np.append(
+                donor_rents, np.nan
+            )  # padding for missing neighbours
             spine.loc[is_target, col] = np.nanmean(donor_rents[neighbours], axis=1)
 
         mean_dist = np.nanmean(np.where(found, dist, np.nan), axis=1)

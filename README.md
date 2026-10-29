@@ -37,3 +37,6 @@ AddressBase
 HASP
 - make probabilistic match safe (for now excluded)
 - include hasp_property_id that point to the same UPRN (for now excluded as suspicious)
+
+Pipeline
+- add single indicator combining is_residential_YYYY and state_YYYY ?

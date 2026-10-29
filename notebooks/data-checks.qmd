@@ -46,6 +46,31 @@ from rent_project.config import (
 
 ```
 
+Key checks
+- Identified residential units vs  Council Tax Stock of Properties, Region, 2011 and 2021
+- Allocated private rentals vs Subnational estimates of dwellings and households by tenure, LA, 2021
+- Matched rental listings vs Subnational estimates of dwellings and households by tenure, LA, 2021
+- Averaged rents vs Price Index of Private Rents, LA, 2021
+
+# Key checks
+
+```{python}
+data = pd.read_parquet(PROCESSED_DIRECTORY / "greater_london_rents_dataset.parquet")
+
+# Residential units (2011, 2021)
+
+# Private rental units (2011, 2021)
+
+# Matched rental listings (all)
+
+# Average estimated rent (2011, 2021)
+
+```
+
+
+ALL OF THIS WILL GO TO CODE GRAVEYARD:
+
+
 # Compare AddressBase totals to official sources
 
 Comparisons
@@ -151,6 +176,9 @@ g.set_titles("{col_name}", size=9)
 g.set_axis_labels("", "Dwellings")
 plt.show()
 ```
+
+
+
 
 # Test HASP to AddressBase Links
 
@@ -288,11 +316,6 @@ matched_probabilistic_sample.to_csv(ADDRESSBASE_DIRECTORY_INTERIM / "matched_has
 
 ```
 
-# Compare allocated PRS dwelling totals to ONS (by local authority)
-
-```{python}
-
-```
 
 # What proportion of (allocated) PRS dwelling totals has listings (in 2021, by LSOA21, distribution)
 
