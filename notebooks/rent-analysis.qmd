@@ -125,17 +125,17 @@ len(data) # 4 151 457
 len(data[
     (data["is_residential_2011"] == True)
     & (data["state_2011"].eq("2") | data["state_2011"].isna())
-]) # 3 450 307 dwellings in 2011
+]) # 3 450 307 nonvacant dwellings in 2011
 
 len(data[
     (data["is_residential_2021"] == True)
     & (data["state_2021"].eq("2") | data["state_2021"].isna())
-]) # 3 795 583 dwellings in 2021
+]) # 3 795 583 nonvacant dwellings in 2021
 
 len(data[
     (data["is_residential_2026"] == True)
     & (data["state_2026"].eq("2") | data["state_2026"].isna())
-]) # 3 956 394 dwellings in 2026
+]) # 3 956 394 nonvacant dwellings in 2026
 
 # number of private rented dwellings
 len(data[data["private_rented_2011"] == True]) # 878 151 private rented in 2011

@@ -47,10 +47,10 @@ from rent_project.config import (
 ```
 
 Key checks
-- Identified residential units vs  Council Tax Stock of Properties, Region, 2011 and 2021
-- Allocated private rentals vs Subnational estimates of dwellings and households by tenure, LA, 2021
-- Matched rental listings vs Subnational estimates of dwellings and households by tenure, LA, 2021
-- Averaged rents vs Price Index of Private Rents, LA, 2021
+- Identified residential units vs Live Table 109, Region, 2011 and 2021
+- Allocated private rentals vs Live Table 109, Region, 2011 and 2021
+- Matched rental listings vs Live Table 109, Region, 2011 and 2021
+- Averaged rents vs Price Index of Private Rents, Region, 2011 and 2021
 
 # Key checks
 
@@ -58,14 +58,24 @@ Key checks
 data = pd.read_parquet(PROCESSED_DIRECTORY / "greater_london_rents_dataset.parquet")
 
 # Residential units (2011, 2021)
+data["is_residential_2011"].sum() # 3481425
+data["is_residential_2021"].sum() # 3817983
 
 # Private rental units (2011, 2021)
+data["private_rented_2011"].sum() # 878,151
+data["private_rented_2021"].sum() # 1,174,022
 
 # Matched rental listings (all)
+data.filter(regex="^listed_rent_").notna().any(axis=1).sum() # 648652
 
 # Average estimated rent (2011, 2021)
-
+data.loc[data["private_rented_2011"] == True, "est_rent_2011"].mean() / 12
+# 1599.996
+data.loc[data["private_rented_2021"] == True , "est_rent_2021"].mean() / 12
+# 2006.774
 ```
+
+
 
 
 ALL OF THIS WILL GO TO CODE GRAVEYARD:
@@ -121,7 +131,6 @@ ctsop_2026 = (
 ```
 
 ```{python}
-# need to add status condition (2 or 3 on NA) !!!!!!!!
 dwellings_2011 = (
     spine[spine["is_residential_2011"]]
     .groupby("lad11cd")
