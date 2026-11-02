@@ -19,7 +19,7 @@ from rent_project.config import (
 )
 
 plt.rcParams["font.family"] = "IBM Plex Sans"
-plt.rcParams["font.size"] = 12
+plt.rcParams["font.size"] = 13
 
 ```
 
@@ -97,11 +97,10 @@ SERIES = [
 
 # Label displacement from its own dot, per year and series: (dx, dy) in points
 LABEL_OFFSETS = {
-    2006: {"rent_nominal": (0, -20),"rent_2025": (0, 20),
-    "rent_hours_scaled": (0, -20)},
-    2011: {"rent_nominal": (0, -20), "rent_2025": (0, -20), "rent_hours_scaled": (-55, 23)},
-    2016: {"rent_nominal": (0, -20), "rent_2025": (-10, -25), "rent_hours_scaled": (0, 20)},
-    2021: {"rent_nominal": (0, -20), "rent_2025": (-14, 35), "rent_hours_scaled": (-41, -21)},
+    2006: {"rent_nominal": (0, -20),"rent_2025": (0, 20), "rent_hours_scaled": (0, -20)},
+    2011: {"rent_nominal": (0, -20), "rent_2025": (0, -20), "rent_hours_scaled": (-57, 23)},
+    2016: {"rent_nominal": (0, -20), "rent_2025": (-13, -25), "rent_hours_scaled": (0, 20)},
+    2021: {"rent_nominal": (0, -20), "rent_2025": (-16, 35), "rent_hours_scaled": (-43, -21)},
     2025: {"rent_nominal": (15, -34), "rent_2025": (15, 34), "rent_hours_scaled": (15, 0)},
 }
 
