@@ -9,7 +9,7 @@ import geopandas as gpd
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from matplotlib.colors import ListedColormap, Normalize, PowerNorm, TwoSlopeNorm
+from matplotlib.colors import ListedColormap, Normalize, PowerNorm
 from matplotlib.ticker import FuncFormatter
 
 from rent_project.config import (
@@ -32,7 +32,7 @@ Key bits if analysis:
 - Average listings in proximity of crossrail stations
 - Regress rent increases on Census characteristics (race, class as a minimum)
 
-# Figure 1: The growth of London's total private rent bill
+# Figure 2: The growth of London's total private rent bill
 
 2006 to 2025, region totals, ONS/MHCLG data
 
@@ -127,13 +127,13 @@ sec = ax.secondary_yaxis("right", functions=(lambda v: v / PAY_2025, lambda v: v
 sec.set_ylabel("Hours of median-pay work per month's rent", color=SALMON)
 sec.tick_params(axis="y", labelcolor=SALMON)
 
-fig.savefig(OUTPUT_DIRECTORY / "figure_01_total_rent_bill.png", dpi=300)
+# fig.savefig(OUTPUT_DIRECTORY / "figure_01_total_rent_bill.png", dpi=300)
 plt.show()
 ```
 
 
 
-# Figures X to Y: Maps
+# Maps
 
 ## Data checks
 
@@ -190,7 +190,7 @@ points = gpd.GeoDataFrame(
     crs="EPSG:27700",
 )
 hexagons = gpd.read_file(
-    DATA_DIRECTORY / "raw" / "spatial-boundaries" / "hex-grid-1075m" / "hex-grid-1075.shp"
+    DATA_DIRECTORY / "raw" / "spatial-boundaries" / "hex-grid-600m" / "hex-grid-600.shp"
     ).to_crs("EPSG:27700")
 joined = gpd.sjoin(points, hexagons[["geometry"]], predicate="within")
 
@@ -231,14 +231,11 @@ stats["t_rent_change_absolute"] = stats["t_rent_2021"] - stats["t_rent_2011"]
 stats["a_rent_change_relative"] = (stats["a_rent_2021"] / stats["a_rent_2011"] - 1)*100
 stats["a_rent_change_absolute"] = stats["a_rent_2021"] - stats["a_rent_2011"]
 
+# getting rid of very small denominators 
 stats = stats.replace([np.inf, -np.inf], np.nan)
 MIN_PRIVATE_RENTED = 20
-
 low_2011 = stats["n_private_rented_2011"] < MIN_PRIVATE_RENTED
-low_either = low_2011 | (stats["n_private_rented_2021"] < MIN_PRIVATE_RENTED)
 stats.loc[low_2011, ["n_private_rented_change_relative", "t_rent_change_relative"]] = np.nan
-stats.loc[low_either, ["a_rent_change_relative", "a_rent_change_absolute"]] = np.nan
-
 
 hexagons = hexagons.join(stats)  # hexagons with no properties get NaN
 hexagons = hexagons.clip(london, keep_geom_type=True)
@@ -329,7 +326,7 @@ def plot_hex_map(
     gap = 0.02
 
     hist_ax = fig.add_axes([cbar_pos.x0 - gap - width, cbar_pos.y0, width, height])
-    n, bins, patches = hist_ax.hist(data.clip(lower=vmin, upper=vmax), bins=15)
+    _n, _bins, patches = hist_ax.hist(data.clip(lower=vmin, upper=vmax), bins=15)
 
     for patch in patches:
         mid = patch.get_x() + patch.get_width() / 2
@@ -416,24 +413,4 @@ plot_hex_map(
 )
 
 ```
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
