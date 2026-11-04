@@ -14,6 +14,7 @@ from rent_project.config import (
 )
 ```
 
+# Pipeline bits
 
 Uprating listed rents - attempt to do this with fixed effects.
 Problem: there will be boroughs (City of London likely) with few repeated observations, where the borough-year effects will not be calculated.
@@ -70,6 +71,8 @@ for year in years:
 # then merge into spine either: actually existing or estimated rent for the three years
 
 ```
+
+# Analysis bits
 
 Initial abandoned bits of analysis
 
@@ -147,6 +150,329 @@ What kinds of areas get rentierised? Never started this
 # working class 2011
 # local authority ?
 
+```
+
+# Data check bits 
+
+Comparisons
+
+Local authority level
+
+Council Tax 2011, 2021, 2026: CTSOP1.1 number of properties by Council Tax band, local authority and lower and middle super output area at 31 March 2026
+
+MHCLG Dwelling stock estimates (Live Table 125)
+
+Census: KS401EW Dwellings, household spaces and accommodation type, local authorities in England and Wales
+
+Detailed
+Census 2011: QS417EW Household spaces; QS418EW Dwellings; (QS101EW Residence type?)
+Census 2021: RM204 Number of Dwellings
+
+```{python}
+# My AddressBase spine
+spine = pd.read_parquet(
+    ADDRESSBASE_DIRECTORY_INTERIM / "greater_london_abplus_spine.parquet"
+)
+
+# Council Tax Stock of Properties 
+ctsop_2011 = pd.read_csv(
+    DATA_DIRECTORY / "raw" / "area-housing-data" / "dwelling-numbers" / "ctsop-properties-2011-lsoa-ctsop_1_1.csv",
+    usecols=["geography", "ecode", "area_name", "all_properties"])
+ctsop_2011 = (
+    ctsop_2011[ctsop_2011["geography"] == "LAUA"][["ecode", "all_properties"]]
+    .rename(columns={"ecode": "lad_cd", "all_properties": "ctsop"})
+)
+
+ctsop_2021 = pd.read_csv(
+    DATA_DIRECTORY / "raw" / "area-housing-data" / "dwelling-numbers" / "ctsop-properties-2021-lsoa-ctsop_1_1.csv",
+    usecols=["geography", "ecode", "area_name", "all_properties"])
+ctsop_2021 = (
+    ctsop_2021[ctsop_2021["geography"] == "LAUA"][["ecode", "all_properties"]]
+    .rename(columns={"ecode": "lad_cd", "all_properties": "ctsop"})
+)
+
+ctsop_2026 = pd.read_csv(
+    DATA_DIRECTORY / "raw" / "area-housing-data" / "dwelling-numbers" / "ctsop-properties-2026-lsoa-ctsop_1_1.csv",
+    usecols=["geography", "ecode", "area_name", "all_properties"])
+ctsop_2026 = (
+    ctsop_2026[ctsop_2026["geography"] == "LAUA"][["ecode", "all_properties"]]
+    .rename(columns={"ecode": "lad_cd", "all_properties": "ctsop"})
+)
+
+```
+
+```{python}
+dwellings_2011 = (
+    spine[spine["is_residential_2011"]]
+    .groupby("lad11cd")
+    .size().rename("spine")
+    .rename_axis("lad_cd").reset_index()
+    .merge(ctsop_2011, on = "lad_cd")
+    .assign(year=2011)
+)
+dwellings_2021 = (
+    spine[spine["is_residential_2021"]]
+    .groupby("lad21cd")
+    .size().rename("spine")
+    .rename_axis("lad_cd").reset_index()
+    .merge(ctsop_2021, on = "lad_cd")
+    .assign(year=2021)
+)
+dwellings_2026 = (
+    spine[spine["is_residential_2026"]]
+    .groupby("lad21cd")
+    .size().rename("spine")
+    .rename_axis("lad_cd").reset_index()
+    .merge(ctsop_2026, on = "lad_cd")
+    .assign(year=2026)
+)
+
+dwellings = pd.concat(
+    [dwellings_2011, dwellings_2021, dwellings_2026],
+    ignore_index=True
+)
+dwellings_long = dwellings.melt(
+    id_vars=["lad_cd", "year"],
+    value_vars=["spine", "ctsop"],
+    var_name="source",
+    value_name="dwellings",
+)
+dwellings_long["borough"] = dwellings_long["lad_cd"].map(LONDON_BOROUGHS)
+```
+
+
+```{python}
+g = sns.relplot(
+    data=dwellings_long,
+    x="year", y="dwellings",
+    hue="source", style="source", markers=True, dashes=False,
+    col="borough", col_wrap=6,
+    kind="line",
+    height=2.2, aspect=1.2,
+    facet_kws={"sharey": True},
+)
+g.set(xticks=[2011, 2021, 2026])
+g.set_titles("{col_name}", size=9)
+g.set_axis_labels("", "Dwellings")
+plt.show()
+```
+
+
+Test HASP to AddressBase Links
+
+THE MATCHING CODE ITSELF
+
+```{python}
+ADDRESS_COLUMNS = ['address_1', 'address_2', 'address_3', 'address_4', 'address_5', 'address_6']
+
+spine = pd.read_parquet(ADDRESSBASE_DIRECTORY_INTERIM / "greater_london_abplus_spine.parquet")
+
+addresses = pd.read_parquet(ADDRESSBASE_DIRECTORY_INTERIM / "greater_london_abplus_addresses.parquet")
+
+rent_properties = pd.read_parquet(DATA_DIRECTORY / "raw" / "hasp-whenfresh-zoopla" / "wfz_rent_properties.parquet")
+
+
+# preparing address to match
+out = None
+for col in ADDRESS_COLUMNS:
+    s = rent_properties[col].astype('string')
+    if out is None:
+        out = s
+    else:
+        out = out.str.cat(s, sep=', ').fillna(out).fillna(s)
+rent_properties['address'] = out.fillna('')
+del out, s
+
+# matcher
+con = duckdb.connect()
+
+hasp_addresses = con.from_df(
+    rent_properties[["property_id","address","postcode"]]
+    .rename(columns={"property_id": "unique_id", "address": "address_concat"})
+)
+
+addressbase_addresses = con.from_df(
+    addresses[["uprn","address","postcode"]]
+    .rename(columns={"uprn": "unique_id", "address": "address_concat"})
+)
+
+matcher = AddressMatcher(
+    canonical_addresses=addressbase_addresses,
+    addresses_to_match=hasp_addresses,
+    con=con,
+    stages=[
+        ExactMatchStage(),
+        PeeledAddressStage(),
+        UniqueTrigramStage(),
+        # SplinkStage(
+        #    # recommended 10.0
+        #    final_match_weight_threshold=10, 
+        #    # recommended 1.0; initial testing: >2.0
+        #    final_distinguishability_threshold=2.1, 
+        #),
+    ],
+)
+result = matcher.match()
+rent_properties_matched = (
+    result.matches().to_df()
+    .rename(columns={
+        "resolved_canonical_id": "uprn",
+        "unique_id": "hasp_property_id"
+    })
+)
+
+# PRECAUTIONS
+# drop all unmatched
+rent_properties_matched = rent_properties_matched.dropna(subset=["uprn"])
+# drop repeated uprns (all instances)
+rent_properties_matched = rent_properties_matched[
+    ~rent_properties_matched.duplicated("uprn", keep=False)
+]
+# 655136 - 2489 - 2501 = 650146
+
+
+# LAST STEP
+
+# Merging the hasp property id to addresses spine
+spine_hasp = spine.merge(
+    rent_properties_matched[["hasp_property_id","uprn"]],
+    how='left', on="uprn")
+# make sure to add a check that spine has not gotten longer
+# 4151457 to 4159941, due to uprn duplicates in hasp
+# stays 4151457 after dropping uprn duplicates in hasp
+
+# These checks should defo be included in some output, maybe by borough:
+len(spine_hasp[~spine_hasp["hasp_property_id"].isna()])
+# 650146 as expected
+len(spine_hasp[~spine_hasp["hasp_property_id"].isna()]) / len(spine_hasp)
+# 16% properties has hasp_property_id
+```
+
+INITIAL INVESTIGATIONS
+
+```{python}
+
+# investigate matches
+print(result.match_metrics())
+# probabilistic: 49901 unmatched,  685502 matched
+# without probabilistic: 80267 unmatched, 655136 matched
+
+# length
+len(rent_properties_matched["hasp_property_id"]) # 735403
+
+# no hasp id duplicates
+print(rent_properties_matched["hasp_property_id"].nunique()) # 735403
+sum(rent_properties_matched["hasp_property_id"].duplicated()) # 0
+
+# number of unmatched
+sum(rent_properties_matched["uprn"].isna())
+# 49901 (probabilistic) / 80267 (no probabilistic)
+
+# repeated uprns
+sum(rent_properties_matched["uprn"].dropna().duplicated()) # 8075 / 2501
+dupes = rent_properties_matched.dropna(subset=["uprn"])
+dupes = dupes[dupes.duplicated("uprn", keep=False)].sort_values("uprn")
+print(dupes["uprn"].nunique()) # 7574 repeated uprns / 2489
+sum(dupes["uprn"].duplicated()) # 8075 of the extras / 2501
+
+sampled_uprns = (
+    dupes["uprn"].drop_duplicates().sample(n=10, random_state=1)
+)
+dupes_sample = (
+    dupes[dupes["uprn"].isin(sampled_uprns)].sort_values("uprn")
+)
+dupes_sample.to_csv(ADDRESSBASE_DIRECTORY_INTERIM / "matched_uprn_duplicates_sample_inspection.csv", index=False)
+
+# probabilistic matching
+matched_probabilistic_sample = (
+    rent_properties_matched[
+        rent_properties_matched["match_reason"] == "splink: probabilistic match"
+        ]
+    .sample(n=20, random_state=1)
+)
+matched_probabilistic_sample.to_csv(ADDRESSBASE_DIRECTORY_INTERIM / "matched_hasp_to_ab_probabilistic_sample_inspection.csv")
+
+```
+
+What proportion of (allocated) PRS dwelling totals has listings (in 2021, by LSOA21, distribution)
+
+```{python}
+data = pd.read_parquet(PROCESSED_DIRECTORY / "greater_london_rents_dataset.parquet")
+
+rented_2021 = data[
+    (data["is_residential_2021"] == True)
+    & (data["state_2021"].eq("2") | data["state_2021"].isna())
+    & (data["private_rented_2021"] == True)
+]
+len(rented_2021) # 1,174,022
+rented_2021["est_rent_imputed"].sum() # 553,926
+1 - (rented_2021["est_rent_imputed"].sum() / len(rented_2021)) # 0.528 has a listing
+
+
+# by LSOA
+by_lsoa = (
+    rented_2021
+    .groupby("lsoa21cd")[["private_rented_2021", "est_rent_imputed"]]
+    .sum()
+)
+by_lsoa = by_lsoa[by_lsoa["private_rented_2021"] > 0]
+by_lsoa["prop_w_listing"] = 1 - (by_lsoa["est_rent_imputed"] / by_lsoa["private_rented_2021"])
+
+fig, ax = plt.subplots(figsize=(8, 5))
+ax.hist(by_lsoa["prop_w_listing"], bins=50, edgecolor="white")
+ax.set_xlabel("Proportion of private rented properties with a listing")
+ax.set_ylabel("Number of LSOAs")
+ax.set_title("Proportion of private rented properties with a listing")
+ax.legend()
+plt.tight_layout()
+plt.show()
+
+by_lsoa["prop_w_listing"].mean() # 0.567
+by_lsoa["prop_w_listing"].median() # 0.565
+
+```
+
+# Check Zoopla data for outliers
+
+Listings distribution
+
+```{python}
+listings = pd.read_parquet(HASP_DIRECTORY / "wfz_rent_listings.parquet")
+
+# pd.options.display.float_format = "{:,.2f}".format
+listings["listed_price"].describe(
+    percentiles=[0.001, 0.01, 0.1, .5, .9, .99, .999]
+)
+
+pd.qcut(
+    listings["listed_price"],
+    q=[0, 0.001, 0.01, 0.1, .5, .9, .99, .999, 1],
+    ).value_counts().sort_index()
+
+listings_clipped = listings[(listings["listed_price"] <= 10000) & (listings["listed_price"] >= 10)]
+listings_filtered = listings[listings["listed_price"].between(10, 10000)].copy()
+
+sns.kdeplot(data=listings_clipped, x="listed_price", hue="source_year", common_norm=False)
+
+```
+
+What it does to the overall data
+
+```{python}
+data = pd.read_parquet(PROCESSED_DIRECTORY / "greater_london_rents_dataset.parquet")
+
+# overall size
+len(data) # 4 151 457
+
+# number of private rented dwellings
+len(data[data["private_rented_2011"] == True]) # 878 151 private rented in 2011
+len(data[data["private_rented_2021"] == True]) # 1,174,022 private rented in 2021
+
+# average estimated rent (estimates vs imputed)
+data.groupby("est_rent_imputed")["est_rent_2011"].agg(["mean", "count"])
+data.groupby("est_rent_imputed")["est_rent_2014"].agg(["mean", "count"])
+data.groupby("est_rent_imputed")["est_rent_2021"].agg(["mean", "count"])
+data.groupby("est_rent_imputed")["est_rent_2024"].agg(["mean", "count"])
 ```
 
 
