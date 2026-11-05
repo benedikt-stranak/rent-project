@@ -358,42 +358,42 @@ plot_hex_map(
     mils,
     vmin=0, vmax=rent_vmax, extend="max",
     gamma=0.6,
-    filename="map_01_total-rent-2011.png",
+    # filename="map_01_total-rent-2011.png",
 )
 plot_hex_map(
     "t_rent_2021",
     mils,
     vmin=0, vmax=rent_vmax, extend="max",
     gamma=0.6,
-    filename="map_02_total-rent-2021.png",
+    # filename="map_02_total-rent-2021.png",
 )
 
 # change in rent totals (absolute)
 plot_hex_map(
     "t_rent_change_absolute",
     mils_change,
-    filename="map_03_total-rent-change-absolute.png",
+    # filename="map_03_total-rent-change-absolute.png",
 )
 
 # change in rent totals (relative)
 plot_hex_map(
     "t_rent_change_relative",
     pct_change,
-    filename="map_04_total-rent-change-relative.png"
+    # filename="map_04_total-rent-change-relative.png"
 )
 
 # change in number of private rented properties (absolute)
 plot_hex_map(
     "n_private_rented_change_absolute",
     properties,
-    filename="map_05_number-private-rented-change-absolute.png",
+    # filename="map_05_number-private-rented-change-absolute.png",
 )
 
 # change in number of private rented properties (relative)
 plot_hex_map(
     "n_private_rented_change_relative",
     pct_change,
-    filename="map_06_number-private-rented-change-relative.png",
+    # filename="map_06_number-private-rented-change-relative.png",
 )
 
 # change in average rent (absolute)
@@ -401,7 +401,7 @@ plot_hex_map(
     "a_rent_change_absolute",
     rent,
     cmap=cmc.roma_r, diverging=True,
-    filename="map_07_average-rent-change-absolute.png",
+    # filename="map_07_average-rent-change-absolute.png",
 )
 
 # change in average rent (relative)
@@ -409,8 +409,7 @@ plot_hex_map(
     "a_rent_change_relative",
     pct_change,
     cmap=cmc.roma_r, diverging=True,
-    filename="map_08_average-rent-change-relative.png",
+    # filename="map_08_average-rent-change-relative.png",
 )
 
 ```
-
